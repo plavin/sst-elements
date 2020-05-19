@@ -35,6 +35,7 @@
 #include "reg.h"
 #include "sym-tbl.h"*/
 #include "y.tab.h"
+#include "op.h"
 /*#include "parser.h"
 #include "scanner.h"
 #include "data.h"*/
@@ -44,6 +45,22 @@ using namespace SST::MIPS4KCComponent;
 
 
 /* Local variables: */
+
+/* Map from opcode -> name/type. */
+
+static vector<inst_info> name_tbl = {
+#undef OP
+#define OP(NAME, OPCODE, TYPE, R_OPCODE) inst_info(NAME, OPCODE, TYPE),
+#include "op_tokens.h"
+};
+
+/* Sort the opcode table on their key (the opcode value). */
+void MIPS4KC::sort_name_table (void)
+{
+    sort(name_tbl.begin(), name_tbl.end(), [](inst_info &a, inst_info &b){return a.value1 < b.value1;});
+
+  sorted_name_table = 1;
+}
 
 /* Non-zero means store instructions in kernel, not user, text segment */
 
@@ -92,121 +109,6 @@ instruction * MIPS4KC::make_r_type_inst (int opcode, int rd, int rs, int rt)
   return (inst);
 }
 
-
-
-
-#if 0
-/* Return a floating-point compare instruction with the given OPCODE,
-   FS, and FT fields.*/
-
-void MIPS4KC::r_cond_type_inst (int opcode, int rs, int rt)
-{
-  instruction *inst = make_r_type_inst (opcode, 0, rs, rt);
-
-  switch (opcode)
-    {
-    case Y_C_EQ_D_OP:
-    case Y_C_EQ_S_OP:
-      {
-	COND(inst) = COND_EQ;
-	break;
-      }
-
-    case Y_C_LE_D_OP:
-    case Y_C_LE_S_OP:
-      {
-	COND(inst) = COND_IN | COND_LT | COND_EQ;
-	break;
-      }
-
-    case Y_C_LT_D_OP:
-    case Y_C_LT_S_OP:
-      {
-	COND(inst) = COND_IN | COND_LT;
-	break;
-      }
-
-    case Y_C_NGE_D_OP:
-    case Y_C_NGE_S_OP:
-      {
-	COND(inst) = COND_IN | COND_LT | COND_UN;
-	break;
-      }
-
-    case Y_C_NGLE_D_OP:
-    case Y_C_NGLE_S_OP:
-      {
-	COND(inst) = COND_IN | COND_UN;
-	break;
-      }
-
-    case Y_C_NGL_D_OP:
-    case Y_C_NGL_S_OP:
-      {
-	COND(inst) = COND_IN | COND_EQ | COND_UN;
-	break;
-      }
-
-    case Y_C_NGT_D_OP:
-    case Y_C_NGT_S_OP:
-      {
-	COND(inst) = COND_IN | COND_LT | COND_EQ | COND_UN;
-	break;
-      }
-
-    case Y_C_OLE_D_OP:
-    case Y_C_OLE_S_OP:
-      {
-	COND(inst) = COND_LT | COND_EQ;
-	break;
-      }
-
-    case Y_C_SEQ_D_OP:
-    case Y_C_SEQ_S_OP:
-      {
-	COND(inst) = COND_IN | COND_EQ;
-	break;
-      }
-
-    case Y_C_SF_D_OP:
-    case Y_C_SF_S_OP:
-      {
-	COND(inst) = COND_IN;
-	break;
-      }
-
-    case Y_C_F_D_OP:
-    case Y_C_F_S_OP:
-      {
-	COND(inst) = 0;
-	break;
-      }
-
-    case Y_C_UEQ_D_OP:
-    case Y_C_UEQ_S_OP:
-      {
-	COND(inst) = COND_EQ | COND_UN;
-	break;
-      }
-
-    case Y_C_ULE_D_OP:
-    case Y_C_ULE_S_OP:
-      {
-	COND(inst) = COND_LT | COND_EQ | COND_UN;
-	break;
-      }
-
-    case Y_C_UN_D_OP:
-    case Y_C_UN_S_OP:
-      {
-	COND(inst) = COND_UN;
-	break;
-      }
-    }
-  store_instruction (inst);
-}
-#endif
-
 imm_expr *MIPS4KC::copy_imm_expr (imm_expr *old_expr)
 {
   imm_expr *expr = (imm_expr *) xmalloc (sizeof (imm_expr));
@@ -241,7 +143,6 @@ void MIPS4KC::free_inst (instruction *inst)
     }
 }
 
-
 
 /* Maintain a table mapping from opcode to instruction name and
    instruction type.
@@ -249,29 +150,6 @@ void MIPS4KC::free_inst (instruction *inst)
    Table must be sorted before first use since its entries are
    alphabetical on name, not ordered by opcode. */
 
-
-
-
-/* Map from opcode -> name/type. */
-
-static vector<inst_info> name_tbl = {
-#undef OP
-    //#define OP(NAME, OPCODE, TYPE, R_OPCODE) {NAME, OPCODE, TYPE},
-#define OP(NAME, OPCODE, TYPE, R_OPCODE) inst_info(NAME, OPCODE, TYPE),
-#include "op.h"
-};
-
-
-
-
-/* Sort the opcode table on their key (the opcode value). */
-
-void MIPS4KC::sort_name_table (void)
-{
-    sort(name_tbl.begin(), name_tbl.end(), [](inst_info &a, inst_info &b){return a.value1 < b.value1;});
-
-  sorted_name_table = 1;
-}
 
 
 /* Print the instruction stored at the memory ADDRESS. */
@@ -671,7 +549,7 @@ int MIPS4KC::addr_expr_reg (addr_expr *expr)
 static vector<inst_info> i_opcode_tbl = {
 #undef OP
 #define OP(NAME, I_OPCODE, TYPE, A_OPCODE) inst_info(NAME, I_OPCODE, A_OPCODE),
-#include "op.h"
+#include "op_tokens.h"
 };
 
 
@@ -836,7 +714,7 @@ long MIPS4KC::inst_encode (instruction *inst)
 static vector<inst_info> a_opcode_tbl = {
 #undef OP
 #define OP(NAME, I_OPCODE, TYPE, A_OPCODE) inst_info(NAME, A_OPCODE, I_OPCODE),
-#include "op.h"
+#include "op_tokens.h"
 };
 
 
@@ -1036,3 +914,5 @@ void MIPS4KC::inst_cmp (instruction *inst1, instruction *inst2)
       printf ("=================== Not Equal ===================\n");
     }
 }
+
+
