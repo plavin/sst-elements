@@ -118,6 +118,7 @@ public:
             {"clock",                   "(string) Clock frequency. Note: the processor has a 'clock' on both the rising and falling edge, so this should actually be double the 'true' clock speed.", "1GHz"},
             {"fault_locations", "Where should faults be injected (mask)", "0"},
             {"fault_period", "(uint64) Over what period (cycles or instructions) should faults be injected", "100"},
+            {"fault_file", "(string:pathname) Path to file containing faults to inject", "(null)"},
             {"fault_rng_seed", "RNG seed for fault injection (0 for system clock)", "0"},
             {"timeout", "Timeout. Period (in cycles) after which the processor will automatically cease processing and print timeout message", "-1"}
                             )
@@ -418,7 +419,7 @@ protected:
 
     
 
-    void free_instructions (register instruction **inst, int n);
+    void free_instructions (instruction **inst, int n);
     mem_word read_memory_mapped_IO (mem_addr addr);
     void write_memory_mapped_IO (mem_addr addr, mem_word value);
     mem_word bad_mem_read (mem_addr addr, int mask, mem_word *dest);

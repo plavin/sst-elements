@@ -43,20 +43,25 @@ MIPS4KC::MIPS4KC(ComponentId_t id, Params& params) :
     registerAsPrimaryComponent();
     primaryComponentDoNotEndSim();
 
-    // init memory
-    memory = dynamic_cast<Interfaces::SimpleMem*>(loadSubComponent("memHierarchy.memInterface", this, params));
-    if (!memory) {
-        out.fatal(CALL_INFO, -1, "Unable to load memHierarchy.memInterface subcomponent\n");
-    }
-    memory->initialize("mem_link", new Interfaces::SimpleMem::Handler<MIPS4KC> (this, &MIPS4KC::handleEvent));
-
-    // set timeout
-    timeout = params.find<int64_t>("timeout", -1);
-
     //set our clock
     std::string clockFreq = params.find<std::string>("clock", "1GHz");
     clockHandler = new Clock::Handler<MIPS4KC>(this, &MIPS4KC::clockTic);
     clockTC = registerClock(clockFreq, clockHandler);
+
+    // init memory
+    memory = loadUserSubComponent<Interfaces::SimpleMem>("memory", ComponentInfo::SHARE_NONE, clockTC, new Interfaces::SimpleMem::Handler<MIPS4KC>(this, &MIPS4KC::handleEvent));
+    if (!memory) {
+        params.insert("port", "mem_link");
+        memory = loadAnonymousSubComponent<Interfaces::SimpleMem>("memHierarchy.memInterface", "memory", 0,
+                ComponentInfo::SHARE_PORTS, params, clockTC, new Interfaces::SimpleMem::Handler<MIPS4KC>(this, &MIPS4KC::handleEvent));
+    }
+    if (!memory)
+        out.fatal(CALL_INFO, -1, "Unable to load memHierarchy.memInterface subcomponent\n");
+
+    // set timeout
+    timeout = params.find<int64_t>("timeout", -1);
+
+
 
     // set executable file
     string execFile = params.find<std::string>("execFile");
@@ -68,7 +73,9 @@ MIPS4KC::MIPS4KC(ComponentId_t id, Params& params) :
     uint32_t fault_locations = params.find<uint32_t>("fault_locations", 0);
     uint64_t fault_period = params.find<uint64_t>("fault_period", 100);
     uint32_t fault_rng_seed = params.find<uint32_t>("fault_rng_seed", 0);
-    faultChecker.init((faultTrack::location_t)fault_locations, fault_period, fault_rng_seed);
+    string fault_file = params.find<string>("fault_file", "");
+    faultChecker.init((faultTrack::location_t)fault_locations, fault_period, fault_file, 
+                      fault_rng_seed);
 
     // SPIM-CL config
     pipe_out =  stdout;
