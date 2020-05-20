@@ -13,6 +13,36 @@
 // information, see the LICENSE file in the top level directory of the
 // distribution.
 
+/* 
+
+Fault file specification:
+
+<FAULT> ::= <WHERE> <WHEN> <WHAT> <EOL>
+
+#String denoting the location of the fault. E.g. ALU, MDU, etc...
+<WHERE> ::= "ALU" | "MDU" | etc...
+
+# Specify conditions for it to occur: Either by event or by cycle
+<WHEN> ::= <TRIGGER> #
+# trigger is case insensitive
+<TRIGGER> ::= "Cycle" | "Event"      
+
+# bitmask of bits to flip
+<WHAT> = <bitmask>
+
+#Note: Bitmask and trigger number can be specified as a decimal (1234)
+ or hex (0x4d2). Hex requires the "0x" prefix"
+
+# Examples
+
+# At clock cycle 37, flip the least significant bit of the ALU output
+ALU Cycle 37 0x00000001  
+# At the 4th time we use the MDU, flip all bits of the output
+MDU Event 4 0xffffffff
+
+ */
+
+
 #include <sst_config.h>
 #include "faults.h"
 #include <fstream>
