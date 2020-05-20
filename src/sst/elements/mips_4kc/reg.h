@@ -33,8 +33,7 @@ typedef int32_t reg_word;
 #else
 // fault tracking version
 
-namespace faultTrack {
-
+namespace faultTrack {  
     typedef enum {FAULTED, 
                   CORRECTED_MATH,
                   CORRECTED_MEM,
@@ -54,6 +53,7 @@ namespace faultTrack {
                                           // where we should have
                   RIGHT_ADDR_WRONG_DATA} memFaults_t;
 
+    /* Remove? switch over everything to fault_checker_t::location_idx?*/
     typedef enum {
         NO_LOC_FAULT = 0x0,
         RF_FAULT = 0x1, // at random cycle, flip a random bit in a
@@ -97,10 +97,11 @@ struct faultDesc {
 struct memFaultDesc {    
     faultTrack::memFaults_t type;
 
-    list<faultDesc> origFaults;
+    std::list<faultDesc> origFaults;
 
     memFaultDesc() : type(faultTrack::NO_FAULT) {;}
-    memFaultDesc(faultTrack::memFaults_t _type, const list<faultDesc> oFaults)
+    memFaultDesc(faultTrack::memFaults_t _type, 
+                 const std::list<faultDesc> oFaults)
         : type(_type), origFaults(oFaults) {;}
 };
 
@@ -109,13 +110,13 @@ class reg_word {
     int32_t origData; // the 'correct' data
     int32_t data;    // data after potential faults
 
-    typedef list<faultDesc> faultList_t;
+    typedef std::list<faultDesc> faultList_t;
     faultList_t faults;
 #warning should move from being statics to structure created by proc core
     static SST::Cycle_t now;
     static uint64_t faultStats[faultTrack::LAST_FAULT_STATUS];
-    static map<int32_t, memFaultDesc> memFaults;
-    static map<int32_t, uint8_t> origMem;
+    static std::map<int32_t, memFaultDesc> memFaults;
+    static std::map<int32_t, uint8_t> origMem;
     
     faultList_t findFaults() const {
         faultList_t list;
