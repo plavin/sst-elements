@@ -83,10 +83,11 @@ namespace MIPS4KCComponent {
 
         bool readFaultFileLine(ifstream &, const int);
         void readFaultFile(string);
-        // should we inject?
-        bool checkForFault(faultTrack::location_t);
+        // should we inject? (faultedBits returns bits to flip or 0
+        // for random)
+        bool checkForFault(faultTrack::location_t, uint32_t &faultedBits);
         // should we inject? (new style)
-        bool checkForNewStyleFault(location_idx_t);
+        bool checkForNewStyleFault(location_idx_t, uint32_t &faultedBits);
         unsigned int getRand1_31(); // generate # from 1 to 31
 
         // output
@@ -97,7 +98,7 @@ namespace MIPS4KCComponent {
                   string fault_file, uint32_t seed, Output *Out);
 
         // convenience functions
-        faultDesc getFault(faultTrack::location_t);
+        faultDesc getFault(faultTrack::location_t, uint32_t &flippedBits);
         void checkAndInject_RF(reg_word R[32]);
         void checkAndInject_MDU(reg_word &hi, reg_word &lo);
         void checkAndInject_MEM_PRE(reg_word &addr, reg_word &value, bool isLoad);

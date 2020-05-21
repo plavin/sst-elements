@@ -60,13 +60,13 @@ namespace faultTrack {
                         // random register
         ID_FAULT = 0x2,
         MDU_FAULT = 0x4, // Multiply-divide: at a random mult/div
-                         // instruction, flip a random bit in the
+                         // instruction, flip a bit(s) in the
                          // output of the Mult/Div unit
         MEM_PRE_FAULT = 0x8, // Memory Stage "pre": at a random
-                             // load/store, flip a random bit in the
+                             // load/store, flip a  bit(s) in the
                              // address or store value
         MEM_POST_FAULT = 0x10, // Memory Stage "post": at a random
-                               // load/store, flip a random bit in the
+                               // load/store, flip a  bit(s) in the
                                // output of the memory stage
         WB_FAULT = 0x20, //Writeback: at a random cycle, flip a random
                          //bit in a random value being written back
@@ -80,17 +80,17 @@ struct faultDesc {
     SST::Cycle_t when;
     SST::Cycle_t whenCorrected;
     
-    int bit;
+    int bits;
     faultTrack::faultStatus_t status;
 
     // for injecting
-    faultDesc(faultTrack::location_t _where, int _bit) 
-        : where(_where), when(-1), whenCorrected(0), bit(_bit), 
+    faultDesc(faultTrack::location_t _where, int _bits) 
+        : where(_where), when(-1), whenCorrected(0), bits(_bits), 
           status(faultTrack::FAULTED)
     {;}
 
     faultDesc(SST::Cycle_t _when, faultTrack::faultStatus_t _stat)
-        : where(faultTrack::NO_LOC_FAULT), when(_when), whenCorrected(0), bit(0), status(_stat)
+        : where(faultTrack::NO_LOC_FAULT), when(_when), whenCorrected(0), bits(0), status(_stat)
     {;}
 };
 
@@ -642,9 +642,10 @@ public:
 
 
     // Fault injection
+    void addFault(faultDesc f) {
+        //data ^= (1 << f.bit); // flip the bit
+        data ^= f.bits; // flip the bits
 
-    void fault(faultDesc f) {
-        data ^= (1 << f.bit); // flip the bit
         f.when = now;
         faults.push_back(f);
         faultStats[f.status]++;

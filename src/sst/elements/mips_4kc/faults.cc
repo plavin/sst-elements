@@ -170,6 +170,11 @@ bool faultChecker_t::readFaultFileLine(ifstream &in, const int lineNum) {
 
             printf("@ %llu flip: 0x%x\n", when, what);
 
+            if (what == 0) {
+                out->fatal(CALL_INFO,-1, "Cannot Specify Fault with no bits flipping. Line %d\n", 
+                           lineNum);
+            }
+
             // put in data
             if (cycle_trigger) {
                 upcomingFaults_c[loc].push_back(faultFileDesc(when, what));
@@ -219,7 +224,7 @@ void faultChecker_t::readFaultFile(string fault_file_path) {
     }
 }
 
-bool faultChecker_t::checkForNewStyleFault(location_idx_t idx) {
+bool faultChecker_t::checkForNewStyleFault(location_idx_t idx, uint32_t &faultedBits) {
     bool ret = false;
     uint32_t what=0;
 
@@ -234,17 +239,30 @@ bool faultChecker_t::checkForNewStyleFault(location_idx_t idx) {
     // check for fault @ event
     if (!upcomingFaults_e[idx].empty() && 
         event_count[idx] == upcomingFaults_e[idx].back().when) {
-        ret = true;
-        what = upcomingFaults_e[idx].back().what;
-        upcomingFaults_e[idx].pop_back();
-    }
+        uint32_t e_faultBits = upcomingFaults_e[idx].back().what;
+        // if both a by-cycle and by-event fault occur at the same
+        // time, we note it and combine the bits.
+        if (ret) {
+            out->verbose(CALL_INFO, 1, 0, 
+                         "By-cycle and by-event fault occur simultaneously."
+                         " Combining faults (%x|%x = %x)\n", what, e_faultBits, what|e_faultBits);
+        }
 
+        ret = true;
+        what |= e_faultBits;
+        upcomingFaults_e[idx].pop_back();
+    }    
+
+    faultedBits = what;
     return ret;
 }
 
 // should we inject?
-bool faultChecker_t::checkForFault(faultTrack::location_t loc) {
+bool faultChecker_t::checkForFault(faultTrack::location_t loc, uint32_t &faultedBits) {
     location_idx_t newLoc = LAST_FAULT_IDX; 
+    faultedBits = 0; // default for old-style faults is 0 - let
+                     // calling function randomly determine which bit
+                     // to flip
 
     // advances event counts and check for "old style" faults 
     switch (loc) {
@@ -292,7 +310,7 @@ bool faultChecker_t::checkForFault(faultTrack::location_t loc) {
     }
 
     // check for New Style (file-based) faults
-    bool ret = checkForNewStyleFault(newLoc);
+    bool ret = checkForNewStyleFault(newLoc, faultedBits);
 
     // default
     return ret;
@@ -307,34 +325,41 @@ unsigned int faultChecker_t::getRand1_31() {
     return ret;
 }
 
-faultDesc faultChecker_t::getFault(faultTrack::location_t loc) {
-    int bit = rng->generateNextUInt32() & 0x1f;
-    return faultDesc(loc, bit);
+faultDesc faultChecker_t::getFault(faultTrack::location_t loc, uint32_t &flippedBits) {
+    if (flippedBits == 0) { //randomply generate single bit fault
+        int bit = rng->generateNextUInt32() & 0x1f;
+        uint32_t bits = (1<<bit);
+        return faultDesc(loc, bits);
+    } else {
+        return faultDesc(loc, flippedBits);
+    }
 }
 
 void faultChecker_t::checkAndInject_RF(reg_word R[32]) {
-    if(checkForFault(faultTrack::RF_FAULT)) {
+    uint32_t flippedBits = 0;
+    if(checkForFault(faultTrack::RF_FAULT, flippedBits)) {
         unsigned int reg = getRand1_31();
         printf("INJECTING RF FAULT reg %d @ %lld\n", reg, reg_word::getNow());
-        R[reg].fault(getFault(RF_FAULT));
+        R[reg].addFault(getFault(RF_FAULT, flippedBits));
     }
 }
 
 
 void faultChecker_t::checkAndInject_MDU(reg_word &hi, reg_word &lo) {
-    if (checkForFault(MDU_FAULT)) {
-        uint32_t roll = rng->generateNextUInt32();
-        bool faultHi = roll & 0x1;
+    uint32_t flippedBits = 0;
+    if (checkForFault(MDU_FAULT, flippedBits)) {
+        uint32_t roll = rng->generateNextUInt32();  // should replace random hi/lo selection
+        bool faultHi = roll & 0x1;  
         roll >>= 1;
 
-        int bit = roll & 0x1f;
+        faultDesc theFault = getFault(MDU_FAULT, flippedBits);
 
-        printf("INJECTING MDU FAULT reg %s:%d @ %lld\n", 
-               (faultHi) ? "hi" : "lo", bit, reg_word::getNow());
+        printf("INJECTING MDU FAULT reg %s:%08x @ %lld\n", 
+               (faultHi) ? "hi" : "lo", theFault.bits, reg_word::getNow());
         if (faultHi) {
-            hi.fault(faultDesc(MDU_FAULT, bit));
+            hi.addFault(theFault);
         } else {
-            lo.fault(faultDesc(MDU_FAULT, bit));
+            lo.addFault(theFault);
         }
     }
 }
@@ -343,24 +368,25 @@ void faultChecker_t::checkAndInject_MDU(reg_word &hi, reg_word &lo) {
 // isLoad ignored for now
 void faultChecker_t::checkAndInject_MEM_PRE(reg_word &addr, 
                                             reg_word &value, bool isLoad) {
-    if (checkForFault(MEM_PRE_FAULT)) {
-        uint32_t roll = rng->generateNextUInt32();
+    uint32_t flippedBits = 0;
+    if (checkForFault(MEM_PRE_FAULT, flippedBits)) {
+        uint32_t roll = rng->generateNextUInt32(); // should replace
         bool faultAddr = roll & 0x1;
         roll >>= 1;
 
-        int bit = roll & 0x1f;
+        faultDesc theFault = getFault(MEM_PRE_FAULT, flippedBits);
 
-        printf("INJECTING MEM_PRE FAULT %s:%d %s @ %lld\n", 
-               (faultAddr) ? "Address" : "Data", bit,
+        printf("INJECTING MEM_PRE FAULT %s:%08x %s @ %lld\n", 
+               (faultAddr) ? "Address" : "Data", theFault.bits,
                (isLoad) ? "(isLoad)" : "(isStore)",
                reg_word::getNow());
         if (isLoad && !faultAddr) {
             printf(" INJECTING fault to data on load: no effect\n");
         }
         if (faultAddr) {
-            addr.fault(faultDesc(MEM_PRE_FAULT, bit));
+            addr.addFault(theFault);
         } else {
-            value.fault(faultDesc(MEM_PRE_FAULT, bit));
+            value.addFault(theFault);
         }
     }
 }
@@ -368,23 +394,26 @@ void faultChecker_t::checkAndInject_MEM_PRE(reg_word &addr,
 // inject fault after MEM. Note: if inject into 'store' may have no
 // value
 void faultChecker_t::checkAndInject_MEM_POST(reg_word &data) {
-    if(checkForFault(MEM_POST_FAULT)) {
+    uint32_t flippedBits = 0;
+    if(checkForFault(MEM_POST_FAULT, flippedBits)) {
         printf("INJECTING MEM_POST Fault @ %lld\n", reg_word::getNow());
-        data.fault(getFault(MEM_POST_FAULT));
+        data.addFault(getFault(MEM_POST_FAULT, flippedBits));
     }
 }
 
 void faultChecker_t::checkAndInject_WB(reg_word &data) {
-    if(checkForFault(WB_FAULT)) {
+    uint32_t flippedBits = 0;
+    if(checkForFault(WB_FAULT, flippedBits)) {
         printf("INJECTING WB Fault  @ %lld\n", reg_word::getNow());
-        data.fault(getFault(WB_FAULT));
+        data.addFault(getFault(WB_FAULT, flippedBits));
     }
 }
 
 void faultChecker_t::checkAndInject_ALU(reg_word &data) {
-    if(checkForFault(ALU_FAULT)) { 
+    uint32_t flippedBits = 0;
+    if(checkForFault(ALU_FAULT, flippedBits)) { 
         printf("INJECTING ALU Fault  @ %lld\n", reg_word::getNow());
-        data.fault(getFault(ALU_FAULT));
+        data.addFault(getFault(ALU_FAULT, flippedBits));
     } 
 }
 
