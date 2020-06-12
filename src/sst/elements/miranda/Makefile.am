@@ -26,6 +26,8 @@ libmiranda_la_SOURCES = \
 	generators/stencil3dbench.cc \
 	generators/gupsgen.h \
 	generators/gupsgen.cc \
+	generators/distgen.h \
+	generators/distgen.cc \
 	generators/nullgen.h \
 	generators/spmvgen.h \
 	generators/copygen.h \
@@ -41,6 +43,7 @@ EXTRA_DIST = \
 	tests/inorderstream.py \
 	tests/copybench.py \
 	tests/gupsgen.py
+	tests/distgen.py
 
 libmiranda_la_LDFLAGS = -module -avoid-version
 

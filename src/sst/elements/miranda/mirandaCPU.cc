@@ -265,6 +265,7 @@ void RequestGenCPU::handleEvent( Interfaces::SimpleMem::Request* ev) {
 void RequestGenCPU::issueRequest(MemoryOpRequest* req) {
     const uint64_t reqAddress = req->getAddress();
     const uint64_t reqLength  = req->getLength();
+    const uint64_t instrPtr   = req->getInstrPtr();
     bool isRead               = req->isRead();
     bool isCustom             = req->isCustom();
     ReqOperation operation    = req->getOperation();
@@ -359,6 +360,7 @@ void RequestGenCPU::issueRequest(MemoryOpRequest* req) {
         }
 
         request->setVirtualAddress(memMgr->mapAddress(reqAddress));
+        request->setInstructionPointer(instrPtr);
 
         CPURequest* newCPUReq = new CPURequest(req->getRequestID());
         newCPUReq->incPartCount();

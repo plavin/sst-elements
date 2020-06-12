@@ -77,9 +77,16 @@ public:
 	void setIssueTime(const uint64_t now) {
 		issueTime = now;
 	}
+	uint64_t getInstrPtr() const { 
+        return instrPtr; 
+    }
+	uint64_t setInstrPtr(const uint64_t new_ip) { 
+        instrPtr = new_ip;
+    }
 protected:
 	uint64_t reqID;
 	uint64_t issueTime;
+	uint64_t instrPtr;
 	std::vector<uint64_t> dependsOn;
 };
 
