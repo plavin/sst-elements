@@ -21,9 +21,10 @@ module load gcc/9.2.0 python/3.7.4
     Follow the instructions [here](https://spack.io/about/) to install Spack.
 
 4. Install SST-Core
-
-    `spack install sst-core`
-    `spack load sst-core`
+```
+spack install sst-core
+spack load sst-core
+```
 
 5. Install Intel's PIN
 
@@ -34,12 +35,12 @@ module load gcc/9.2.0 python/3.7.4
     NOTE: You may have trouble with the autotools installed on Hive. You can use the script `download_and_install_autotools.sh` in this directory if you run into issues involving libtool etc.
 
 
-    Download this repo into `~/data/local/src/`.
+    - Download this repo into `~/data/local/src/`.
 
-    Run autoconf.sh
+    - Run autoconf.sh
 
-    Configure with
+    - Configure with:
 
-    `./configure --prefix=$SST_ELEMENTS_HOME --with-pin=$PIN_HOME
+        `./configure --prefix=$SST_ELEMENTS_HOME --with-pin=$PIN_HOME`
 
 
