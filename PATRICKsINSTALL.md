@@ -30,7 +30,7 @@ spack load sst-core
 
     [Follow SST's instructions to install PIN 3.x](http://sst-simulator.org/SSTPages/SSTBuildAndInstall10dot1dot0SeriesAdditionalExternalComponents/#intel-pin-tool-313-98189)
 
-5. Installing SST-Elements
+5. Install SST-Elements
 
     NOTE: You may have trouble with the autotools installed on Hive. You can use the script `download_and_install_autotools.sh` in this directory if you run into issues involving libtool etc.
 
