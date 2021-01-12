@@ -35,12 +35,16 @@ spack load sst-core
     NOTE: You may have trouble with the autotools installed on Hive. You can use the script `download_and_install_autotools.sh` in this directory if you run into issues involving libtool etc.
 
 
-    - Download this repo into `~/data/local/src/`.
+- Download this repo into `~/data/local/src/`.
 
-    - Run autoconf.sh
+- Run `autoconf.sh`
 
-    - Configure with:
+- Configure with:
 
-        `./configure --prefix=$SST_ELEMENTS_HOME --with-pin=$PIN_HOME`
+    `./configure --prefix=$SST_ELEMENTS_HOME --with-pin=$PIN_HOME`
+
+- Finish things up with `make all install`
+
+
 
 
