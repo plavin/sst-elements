@@ -1,4 +1,6 @@
 *.o
+*.so
+*.log
 *.lo
 *.la
 *.pyc
@@ -17,3 +19,4 @@ configure
 libtool
 tags
 .DS_Store
+stream
