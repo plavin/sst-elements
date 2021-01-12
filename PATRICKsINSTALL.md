@@ -35,7 +35,7 @@ spack load sst-core
     NOTE: You may have trouble with the autotools installed on Hive. You can use the script `download_and_install_autotools.sh` in this directory if you run into issues involving libtool etc.
 
 
-- Download this repo into `~/data/local/src/`.
+- Download this repo into `~/data/local/scratch/src/`.
 
 - Run `autoconf.sh`
 
