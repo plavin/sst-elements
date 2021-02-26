@@ -19,8 +19,8 @@
 #include <sst/core/params.h>
 #include <sst/core/simulation.h>
 #include <sst/core/interfaces/stringEvent.h>
-#include "memEvent.h"
-
+#include "sst/elements/memHierarchy/memEvent.h"
+#include "sst/elements/memHierarchy/cacheListener.h"
 
 using namespace SST;
 using namespace SST::MemHierarchy;
@@ -72,6 +72,17 @@ streamCPU::streamCPU(ComponentId_t id, Params& params) :
         memory = loadAnonymousSubComponent<Interfaces::SimpleMem>("memHierarchy.memInterface", "memory", 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS,
                 interfaceParams, clockTC, new Interfaces::SimpleMem::Handler<streamCPU>(this, &streamCPU::handleEvent));
         //out.fatal(CALL_INFO, -1, "Unable to load memHierarchy.memInterface subcomponent\n");
+    }
+
+
+    // Setup any phase detectors
+    SubComponentSlotInfo * lists = getSubComponentSlotInfo("phase_detector");
+    if (lists) {
+        for (int i = 0; i <= lists->getMaxPopulatedSlotNumber(); i++) {
+            if (lists->isPopulated(i)) {
+                phaseDetectors.push_back(lists->create<CacheListener>(i, ComponentInfo::SHARE_NONE));
+            }
+        }
     }
 
     addrOffset = params.find<uint64_t>("addressoffset", 0);
@@ -140,6 +151,13 @@ bool streamCPU::clockTic( Cycle_t )
 
             memory->sendRequest(req);
             requests.insert(std::make_pair(req->id, getCurrentSimTime()));
+
+            if (!phaseDetectors.empty()) {
+                CacheListenerNotification notify(123, 123, 123, 123, 8, READ, NA);
+                for (unsigned long int i = 0; i < phaseDetectors.size(); i++) {
+                    phaseDetectors[i]->notifyAccess(notify);
+                }
+            }
 
 	    out.verbose(CALL_INFO, 1, 0, "Issued request %10d: %5s for address %20d.\n", numLS, (doWrite ? "write" : "read"), nextAddr);
 

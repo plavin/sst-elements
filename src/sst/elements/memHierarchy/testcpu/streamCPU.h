@@ -31,6 +31,7 @@
 #include <sst/core/interfaces/simpleMem.h>
 #include <sst/core/rng/marsaglia.h>
 #include "memEvent.h"
+#include "sst/elements/memHierarchy/cacheListener.h"
 
 namespace SST {
 namespace MemHierarchy {
@@ -58,6 +59,10 @@ public:
             {"addressoffset",           "(uint) Apply an offset to a calculated address to check for non-alignment issues", "0"} )
 
     SST_ELI_DOCUMENT_PORTS( {"mem_link", "Connection to cache", { "memHierarchy.MemEventBase" } } )
+
+
+    SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS(
+            {"phase_detector", "Phase Detector", "SST::MemHierarchy::CacheListener"} )
 
 /* Begin class definiton */
     streamCPU(SST::ComponentId_t id, SST::Params& params);
@@ -96,6 +101,8 @@ private:
 
     TimeConverter *clockTC;
     Clock::HandlerBase *clockHandler;
+
+    std::vector<CacheListener*> phaseDetectors;
 
 };
 
