@@ -28,6 +28,8 @@
 #include <sst/elements/memHierarchy/memEvent.h>
 #include <sst/elements/memHierarchy/cacheListener.h>
 
+#define MAXBITS 1024
+typedef std::bitset<MAXBITS> signature;
 
 using namespace SST;
 using namespace SST::MemHierarchy;
@@ -49,7 +51,7 @@ class Dho02 : public SST::MemHierarchy::CacheListener {
 public:
     Dho02(ComponentId_t, Params& params);
     ~Dho02() {
-        printf("Upon teardown, the phase detector reports\n  threshold: %f \n  window_len: %ld\n  sig_len: %d\n  drop_bits: %d\n", threshold, window_len, sig_len, drop_bits);
+        printf("Upon teardown, the phase detector reports\n  threshold: %f \n  window_len: %ld\n  sig_len: %d\n  drop_bits: %d\n  nphases: %d\n", threshold, window_len, sig_len, drop_bits, phase_table.size());
     };
 
     void notifyAccess(const CacheListenerNotification& notify);
@@ -69,6 +71,7 @@ public:
         { "threshold",  "threshold for declaring phases similar",                 "0.5" },
         { "window_len", "Number of instructions in each window",                  "1e5" },
         { "sig_len",    "Size of the bitvector representing the phase signature", "1024" },
+        { "stable_min", "The number of phases with similar signatures before we declare we have found a phase", "5" },
         { "drop_bits",  "Number of low bits to drop when hashing",                "3" },
     )
 
@@ -82,7 +85,7 @@ public:
 
 private:
     uint64_t hash_ip(const Addr ip);
-    float diff(std::vector<bool> sig1, std::vector<bool> sig2);
+    float diff(signature sig1, signature sig2);
     std::hash<Addr> hashAddr;
     typedef unordered_map<Addr, lineTrack> cacheTrack_t;
     cacheTrack_t cacheLines;
@@ -94,14 +97,20 @@ private:
     Statistic<SimTime_t>* ageHisto;
     Statistic<uint>* evicts;
 
+    // TODO: These only need to be set once. How do we make them const?
     float threshold;
     long window_len;
     int sig_len;
     int drop_bits;
+    int stable_min;
 
+    // TODO: These are currently initialized in the constructor. How do we move that here?
     int count;
-    std::vector<bool> sig;
-    std::vector<bool> last_sig;
+    int stable;
+    int phase;
+    signature sig;
+    signature last_sig;
+    std::vector<signature> phase_table;
 
 };
 

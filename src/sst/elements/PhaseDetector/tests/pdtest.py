@@ -35,7 +35,7 @@ comp_l1cache.addParams({
 
 # Attach phase detector to cpu
 pd = comp_cpu.setSubComponent("phase_detector", "PhaseDetector.Dho02")
-#pd.addParams({"drop_bits": "4"})
+#pd.addParams({"sig_len": "1024"})
 # Enable statistics outputs
 pd.enableAllStatistics({"type":"sst.AccumulatorStatistic"})
 

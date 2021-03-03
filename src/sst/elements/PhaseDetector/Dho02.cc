@@ -21,6 +21,8 @@
 
 #include <stdint.h>
 
+#include <algorithm>
+
 #include "sst/core/params.h"
 #include <sst/core/unitAlgebra.h>
 
@@ -63,17 +65,22 @@ Dho02::Dho02(ComponentId_t id, Params& params) : CacheListener(id, params) {
     sig_len    = params.find<int>("sig_len", 1024);
     drop_bits  = params.find<int>("drop_bits", 3);
 
+    if (sig_len > sig.size()) {
+        printf("Error in Dho02.cc: bitset too small: increase MAXBITS in Dho02.h\n");
+        exit(1);
+    }
     count = 0;
-    sig.resize(sig_len);
-    last_sig.resize(sig_len);
+    stable = 0;
+    sig.reset();
+    last_sig.reset();
 }
 
 uint64_t Dho02::hash_ip(const Addr ip) {
     return hashAddr(ip >> drop_bits) >> (64 - log2_64(sig_len));
 }
 
-float Dho02::diff(const std::vector<bool> sig1, const std::vector<bool> sig2) {
-    return ((float)std::count(sig1 ^ sig2)) / std::count(sig1 | sig2);
+float Dho02::diff(const signature sig1, const signature sig2) {
+    return ((float)((sig1 ^ sig2).count())) / (sig1 | sig2).count();
 }
 
 void Dho02::notifyAccess(const CacheListenerNotification& notify) {
@@ -83,9 +90,38 @@ void Dho02::notifyAccess(const CacheListenerNotification& notify) {
     Addr addr = notify.getTargetAddress(); // target address
     Addr cacheAddr = notify.getPhysicalAddress(); // cacheline (base) address
 
+    // TODO: Need IP. Is that what this is?
     sig[hash_ip(notify.getVirtualAddress())] = 1;
     count++;
 
+    if (count % window_len == 0) {
+        if (diff(sig, last_sig) < threshold) {
+            stable += 1;
+            if (stable >= stable_min && phase == -1) {
+                phase_table.push_back(sig);
+                phase = phase_table.size() - 1;
+            }
+        } else {
+            stable = 0;
+            phase = -1;
+
+            if (phase_table.size() > 0) {
+                std::vector<float> similar;
+                for (auto & s : phase_table) {
+                    similar.push_back(diff(sig, s));
+                }
+                size_t best = std::distance(similar.begin(),
+                        std::max_element(similar.begin(), similar.end()));
+                if (similar[best] < threshold) {
+                    phase = best;
+                }
+            }
+        }
+
+        last_sig = sig;
+        sig.reset();
+    }
+    /*
     switch (notifyType) {
     case READ:
     case WRITE:
@@ -134,6 +170,7 @@ void Dho02::notifyAccess(const CacheListenerNotification& notify) {
     default:
         printf("Invalid notify Type\n");
     }
+    */
 }
 
 //void Dho02::registerResponseCallback(Event::HandlerBase *handler) {
