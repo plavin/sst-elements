@@ -101,11 +101,13 @@ class ArielCPU : public SST::Component {
         { "fp_sp_scalar_ins",     "Statistic for counting SP-FP Non-SIMD instructons", "instructions", 1 },
         { "fp_sp_ops",            "Statistic for counting SP-FP operations (inst * SIMD width)", "instructions", 1 },
         { "cycles",               "Statistic for counting cycles of the Ariel core.", "cycles", 1 },
-        { "active_cycles",        "Statistic for counting active cycles (cycles not idle) of the Ariel core.", "cycles", 1 })
+        { "active_cycles",        "Statistic for counting active cycles (cycles not idle) of the Ariel core.", "cycles", 1 }
+    )
 
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS(
             {"memmgr", "Memory manager to translate virtual addresses to physical, handle malloc/free, etc.", "SST::ArielComponent::ArielMemoryManager"},
-            {"memory", "Interface to the memoryHierarchy (e.g., caches)", "SST::Interfaces::SimpleMem" }
+            {"memory", "Interface to the memoryHierarchy (e.g., caches)", "SST::Interfaces::SimpleMem" },
+            {"phase_detector", "Interface to the phaseDetector", "SST::Interfaces::SimpleMem" }
     )
 
         /* Ariel class */
