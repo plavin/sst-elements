@@ -14,40 +14,37 @@
 // distribution.
 
 
-#ifndef _H_SST_ARIEL_EVENT
-#define _H_SST_ARIEL_EVENT
+#ifndef _H_SST_ARIEL_PHASE_EVENT
+#define _H_SST_ARIEL_PHASE_EVENT
 
+#include "arielevent.h"
+#include "phase_detector.h"
 
+using namespace SST;
 
 namespace SST {
 namespace ArielComponent {
 
-enum ArielEventType {
-    READ_ADDRESS,
-    WRITE_ADDRESS,
-    START_DMA_TRANSFER,
-    WAIT_ON_DMA_TRANSFER,
-    CORE_EXIT,
-    NOOP,
-    MALLOC,
-    MMAP,
-    FREE,
-    SWITCH_POOL,
-    FLUSH,
-    FENCE,
-    RTL,
-    PHASE_CHANGE,
-#ifdef HAVE_CUDA
-    GPU
-#endif
-};
-
-class ArielEvent {
+class ArielPhaseEvent : public ArielEvent {
 
     public:
-        ArielEvent();
-        virtual ~ArielEvent();
-        virtual ArielEventType getEventType() const = 0;
+        ArielPhaseEvent(phase_id_type phase) :
+                phase(phase) {
+        }
+
+        ~ArielPhaseEvent() {
+        }
+
+        ArielEventType getEventType() const {
+                return PHASE_CHANGE;
+        }
+
+        uint64_t getPhase() const {
+                return phase;
+        }
+
+    private:
+        const phase_id_type phase;
 
 };
 

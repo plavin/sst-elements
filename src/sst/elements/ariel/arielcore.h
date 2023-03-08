@@ -38,6 +38,7 @@
 #include "arielmemmgr.h"
 #include "arielevent.h"
 #include "arielreadev.h"
+#include "arielphaseev.h"
 #include "arielwriteev.h"
 #include "arielexitev.h"
 #include "arielallocev.h"
@@ -51,6 +52,8 @@
 
 #include "ariel_shmem.h"
 #include "arieltracegen.h"
+
+#include "phase_detector.h"
 
 #ifdef HAVE_CUDA
 #include "arielgpuev.h"
@@ -75,6 +78,39 @@ class ArielCore : public ComponentExtension {
             uint32_t maxIssuePerCyc, uint32_t maxQLen, uint64_t cacheLineSz,
             ArielMemoryManager* memMgr, const uint32_t perform_address_checks, Params& params);
         ~ArielCore();
+        class PhaseData : public StandardMem::CustomData
+        {
+        public:
+            int phase;
+            PhaseData(phase_id_type phase_) {
+                phase = phase_;
+            }
+            ~PhaseData() {
+            }
+            uint64_t getRoutingAddress() {
+                return 0;
+            }
+            uint64_t getSize() {
+                return 1;
+            }
+            PhaseData* makeResponse() {
+                return NULL;
+            }
+            bool needsResponse() {
+                return false;
+            }
+            std::string getString() {
+                return "PhaseData";
+            }
+            std::string serialization_name() const {
+                return "PhaseData";
+            }
+            uint32_t cls_id() const {
+                return 110193;
+            }
+            void serialize_order(SST::Core::Serialization::serializer& UNUSED(ser)) {}
+        };
+
 
         bool isCoreHalted() const;
         bool isCoreStalled() const;
@@ -116,6 +152,7 @@ class ArielCore : public ComponentExtension {
         void fence();
         void unfence();
         void finishCore();
+        void createPhaseEvent(phase_id_type phase);
         void createReadEvent(uint64_t addr, uint32_t size);
         void createWriteEvent(uint64_t addr, uint32_t size, const uint8_t* payload);
         void createAllocateEvent(uint64_t vAddr, uint64_t length, uint32_t level, uint64_t ip);

@@ -31,6 +31,7 @@
 #include <vector>
 #include <sst/core/interprocess/tunneldef.h>
 #include "ariel_inst_class.h"
+#include "phase_detector.h"
 
 #ifdef HAVE_CUDA
 #include "gpu_enum.h"
@@ -66,6 +67,7 @@ enum ArielShmemCmd_t {
     ARIEL_ISSUE_RTL = 150,
     ARIEL_FLUSHLINE_INSTRUCTION = 154,
     ARIEL_FENCE_INSTRUCTION = 155,
+    ARIEL_PHASE_CHANGE = 180,
 };
 
 #ifdef HAVE_CUDA
@@ -188,6 +190,8 @@ struct ArielCommand {
             CudaArguments CA;
         } API;
 #endif
+    // DO NOT MOVE - Some bad code will override the command field if this phaseID is placed elsewhere
+    phase_id_type phaseID; // TODO: wasteful - rework how this is done
     };
 };
 
@@ -201,6 +205,7 @@ struct ArielSharedData {
 
 class ArielTunnel : public SST::Core::Interprocess::TunnelDef<ArielSharedData, ArielCommand>
 {
+    PhaseDetector pd;
 public:
     /**
      * Create a new Ariel Tunnel
@@ -225,6 +230,8 @@ public:
             sharedData->simTime = 0;
             sharedData->cycles = 0;
             sharedData->child_attached = 0;
+
+            pd.init_phase_detector();
         } else {
             /* Ideally, this would be done atomically, but we'll only have 1 child */
             sharedData->child_attached++;
@@ -262,6 +269,33 @@ public:
         uint64_t cTime = sharedData->simTime;
         tp->tv_sec = cTime / 1e9;
         tp->tv_nsec = cTime - (tp->tv_sec * 1e9);
+    }
+
+    /** Shim for intercepting data read */
+    bool readMessageNB(uint32_t coreID, ArielCommand* ac) {
+        bool avail = SST::Core::Interprocess::TunnelDef<ArielSharedData, ArielCommand>::readMessageNB(coreID, ac);
+        static phase_id_type last_phase = -1;
+
+        // Only read from thread 0 to simplify PD implementation.
+        // Only read the message if avail is true
+
+        if (isMaster() && avail) {
+            if (ac->command == ARIEL_START_INSTRUCTION) {
+                phase_id_type phase;
+                if (pd.detect(ac->instPtr, &phase)) { //asignment is intended, detect returns true on interval boundary
+                    // Change command to have the core generate a phase change packet that notifies the system
+                    if (phase != last_phase) {
+                        // only message on phase change
+                        ac->command = ARIEL_PHASE_CHANGE;
+                        ac->phaseID = phase;
+                        last_phase = phase;
+                    }
+                }
+            }
+        }
+
+        return avail;
+
     }
 
 };

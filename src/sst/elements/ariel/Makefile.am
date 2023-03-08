@@ -29,6 +29,7 @@ libariel_la_SOURCES = \
 	arielmemmgr_malloc.cc \
 	arielmemmgr_malloc.h \
 	arielreadev.h \
+	arielphaseev.h \
 	arielexitev.h \
 	arielfenceev.h \
 	arielflushev.h \
@@ -48,7 +49,9 @@ libariel_la_SOURCES = \
 	gpu_enum.h \
 	arielgpuev.h \
 	tb_header.h \
-	arielrtlev.h
+	arielrtlev.h \
+	phase_detector.cc \
+	phase_detector.h
 
 EXTRA_DIST = \
 	api/arielapi.c \
