@@ -19,6 +19,8 @@ libmemHierarchy_la_SOURCES = \
 	bus.cc \
 	memoryController.h \
 	memoryController.cc \
+	parrot.h \
+	parrot.cc \
 	memoryCacheController.h \
 	memoryCacheController.cc \
 	coherentMemoryController.h \
