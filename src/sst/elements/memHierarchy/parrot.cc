@@ -45,7 +45,7 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
 
     /* Setup up links */
     if (isPortConnected("high_network_0")) {
-        SST::Link *link = configureLink("high_network_0", "50ps", new Event::Handler<Parrot>(this, &Parrot::handleResponse));
+        SST::Link *link = configureLink("high_network_0", "50ps", new Event::Handler<Parrot, unsigned int>(this, &Parrot::handleRequest, 0));
         if (!link)
             output.fatal(CALL_INFO, -1, "%s, Error: unable to configure link on port high_network_0.\n", getName().c_str());
         upLinks.push_back(link);
@@ -55,7 +55,7 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     int num_links = 1;
     std::string linkname = "high_network_1";
     while (isPortConnected(linkname)) {
-        SST::Link *link = configureLink(linkname, "50ps", new Event::Handler<Parrot>(this, &Parrot::handleResponse));
+        SST::Link *link = configureLink(linkname, "50ps", new Event::Handler<Parrot, unsigned int>(this, &Parrot::handleRequest, num_links));
         if (!link)
             output.fatal(CALL_INFO, -1, "%s, Error: unable to configure link on port '%s'\n", getName().c_str(), linkname.c_str());
         upLinks.push_back(link);
@@ -107,6 +107,7 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
     MemEventBase *event = static_cast<MemEventBase*>(ev);
     if (!clockOn) enableClock();
     //TODO: Optimize - give each link pair its own map
+    //printf("pushing to requestQueue\n");
     threadRequestMap.insert(std::make_pair(event->getID(), threadid));
     requestQueue.push(event);
 }
@@ -125,8 +126,10 @@ bool Parrot::tick(SST::Cycle_t cycle) {
     /* Drain request queue */
     while (!requestQueue.empty() && sendcount > 0) {
         MemEventBase * event = requestQueue.front();
+        //printf("Need to send event\n");
         unsigned int linkid = threadRequestMap.find(event->getID())->second;
         downLinks[linkid]->send(event);
+        //printf("sent event on %u\n", linkid);
         requestQueue.pop();
         sendcount--;
     }
@@ -193,7 +196,5 @@ void Parrot::init(unsigned int phase) {
             delete ev;
         }
     }
-    printf("PARROT: FINISHING INIT PHASE\n");
-
 }
 

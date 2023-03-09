@@ -882,7 +882,7 @@ bool ArielCore::refillQueue() {
                 printf("New phase: %" PRId64 "\n", ac.phaseID);
                 phase_data = new ArielCore::PhaseData(ac.phaseID);
                 req = new StandardMem::CustomReq(phase_data, 0, 0, 0);
-                cacheLink->send(req);
+                //cacheLink->send(req);
 
             case ARIEL_START_INSTRUCTION:
                 if(ARIEL_INST_SP_FP == ac.inst.instClass) {
