@@ -271,6 +271,8 @@ public:
         tp->tv_nsec = cTime - (tp->tv_sec * 1e9);
     }
 
+
+
     /** Shim for intercepting data read */
     bool readMessageNB(uint32_t coreID, ArielCommand* ac) {
         bool avail = SST::Core::Interprocess::TunnelDef<ArielSharedData, ArielCommand>::readMessageNB(coreID, ac);
@@ -279,7 +281,7 @@ public:
         // Only read from thread 0 to simplify PD implementation.
         // Only read the message if avail is true
 
-        if (isMaster() && avail) {
+        if ((coreID==0) && avail) {
             if (ac->command == ARIEL_START_INSTRUCTION) {
                 phase_id_type phase;
                 if (pd.detect(ac->instPtr, &phase)) { //asignment is intended, detect returns true on interval boundary

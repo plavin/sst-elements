@@ -168,6 +168,12 @@ void ArielCore::printTraceEntry(const bool isRead,
     }
 }
 
+void ArielCore::commitPhaseEvent(const phase_id_type phase) {
+    ArielCore::PhaseData *data = new ArielCore::PhaseData(phase);
+    StandardMem::CustomReq *req = new StandardMem::CustomReq(data, 0, 0, 0);
+    //cacheLink->send(req);
+}
+
 void ArielCore::commitReadEvent(const uint64_t address,
             const uint64_t virtAddress, const uint32_t length) {
     if(length > 0) {
@@ -863,6 +869,8 @@ bool ArielCore::refillQueue() {
         ARIEL_CORE_VERBOSE(32, output->verbose(CALL_INFO, 32, 0, "Tunnel reads data on core: %" PRIu32 "\n", coreID));
 
         // There is data on the pipe
+        ArielCore::PhaseData *phase_data;
+        StandardMem::CustomReq *req;
         switch(ac.command) {
             case ARIEL_OUTPUT_STATS:
                 fprintf(stdout, "Performing statistics output at simulation time = %" PRIu64 " cycles\n", getCurrentSimTimeNano());
@@ -870,10 +878,12 @@ bool ArielCore::refillQueue() {
                 break;
 
             case ARIEL_PHASE_CHANGE:
+                // Go ahead and send it, queueing it would be a hassle. The phase has already begun anyways.
                 printf("New phase: %" PRId64 "\n", ac.phaseID);
-                createPhaseEvent(ac.phaseID);
-                // read the phase from the ac and send it, then fall through
-                // FALL THROUGH
+                phase_data = new ArielCore::PhaseData(ac.phaseID);
+                req = new StandardMem::CustomReq(phase_data, 0, 0, 0);
+                cacheLink->send(req);
+
             case ARIEL_START_INSTRUCTION:
                 if(ARIEL_INST_SP_FP == ac.inst.instClass) {
                         statFPSPIns->addData(1);
@@ -984,39 +994,9 @@ void ArielCore::handleFreeEvent(ArielFreeEvent* rFE) {
     memmgr->freeMalloc(rFE->getVirtualAddress());
 }
 
-void ArielCore::handlePhaseRequest(ArielPhaseEvent* pEv) {
-    ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Core %" PRIu32 " processing a read event...\n", coreID));
-
-    const uint64_t readAddress = rEv->getAddress();
-    const uint64_t readLength  = std::min((uint64_t) rEv->getLength(), cacheLineSize); // Trim to cacheline size (occurs rarely for instructions such as xsave and fxsave)
-
-    const phase_id_type = ev->
-
-    /* No longer neccessary due to trimming above
-     * if(readLength > cacheLineSize) {
-        output->verbose(CALL_INFO, 4, 0, "Potential error? request for a read of length=%" PRIu64 " is larger than cache line which is not allowed (coreID=%" PRIu32 ", cache line: %" PRIu64 "\n",
-                    readLength, coreID, cacheLineSize);
-        return;
-    }*/
-
-    // NOTE: Physical and virtual addresses may not be aligned the same w.r.t. line size if map-on-malloc is being used (arielinterceptcalls != 0), so use physical offsets to determine line splits
-    // There is a chance that the non-alignment causes an undetected bug if an access spans multiple malloc regions that are contiguous in VA space but non-contiguous in PA space.
-    // However, a single access spanning multiple malloc'd regions shouldn't happen...
-    // Addresses mapped via first touch are always line/page aligned
-    const uint64_t physAddr = memmgr->translateAddress(readAddress);
-    const uint64_t addr_offset  = physAddr % ((uint64_t) cacheLineSize);
-
-    if((addr_offset + readLength) <= cacheLineSize) {
-        ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Core %" PRIu32 " generating a non-split read request: Addr=%" PRIu64 " Length=%" PRIu64 "\n",
-                            coreID, readAddress, readLength));
-
-        // We do not need to perform a split operation
-
-        ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Core %" PRIu32 " issuing read, VAddr=%" PRIu64 ", Size=%" PRIu64 ", PhysAddr=%" PRIu64 "\n",
-                            coreID, readAddress, readLength, physAddr));
-
-        commitReadEvent(physAddr, readAddress, (uint32_t) readLength);
-    }
+void ArielCore::handlePhaseChange(ArielPhaseEvent* pEv) {
+    ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Core %" PRIu32 " processing a phase event...\n", coreID));
+    commitPhaseEvent(pEv->getPhase());
 }
 
 void ArielCore::handleReadRequest(ArielReadEvent* rEv) {
@@ -1498,7 +1478,7 @@ bool ArielCore::processNextEvent() {
                 // Handle the event without checking the number of outstanding events. Phase events happen rarely,
                 // and will have little impact on simulated time.
                 removeEvent = true;
-                handlePhaseRequest(dynamic_cast<ArielPhaseEvent*>(nextEvent));
+                handlePhaseChange(dynamic_cast<ArielPhaseEvent*>(nextEvent));
 
         case READ_ADDRESS:
                 ARIEL_CORE_VERBOSE(8, output->verbose(CALL_INFO, 8, 0, "Core %" PRIu32 " next event is READ_ADDRESS\n", coreID));

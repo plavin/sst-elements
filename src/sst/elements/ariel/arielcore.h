@@ -184,7 +184,8 @@ class ArielCore : public ComponentExtension {
 #endif
 
         void handleEvent(StandardMem::Request* event);
-        void handleReadRequest(ArielReadEvent* wEv);
+        void handlePhaseChange(ArielPhaseEvent* pEv);
+        void handleReadRequest(ArielReadEvent* rEv);
         void handleWriteRequest(ArielWriteEvent* wEv);
         void handleAllocationEvent(ArielAllocateEvent* aEv);
         void handleMmapEvent(ArielMmapEvent* aEv);
@@ -218,6 +219,7 @@ class ArielCore : public ComponentExtension {
         // interrupt handlers
         bool handleInterrupt(ArielMemoryManager::InterruptAction action);
 
+        void commitPhaseEvent(const phase_id_type phase);
         void commitReadEvent(const uint64_t address, const uint64_t virtAddr, const uint32_t length);
         void commitWriteEvent(const uint64_t address, const uint64_t virtAddr, const uint32_t length, const uint8_t* payload);
         void commitFlushEvent(const uint64_t address, const uint64_t virtAddr, const uint32_t length);
