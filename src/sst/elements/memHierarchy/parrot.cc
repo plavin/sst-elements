@@ -15,9 +15,12 @@
 
 #include <sst_config.h>
 #include "parrot.h"
+#include "memEventCustom.h"
+#include "../ariel/arielcore.h"
 
 #include <sst/core/params.h>
 #include <sst/core/interfaces/stringEvent.h>
+#include <typeinfo>
 
 using namespace SST;
 using namespace SST::MemHierarchy;
@@ -36,12 +39,13 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     for (std::vector<Addr>::iterator it = addrArr.begin(); it != addrArr.end(); it++)
         DEBUG_ADDR.insert(*it);
 
+    forward = params.find<bool>("forward", false);
+
     /* Setup clock */
     clockHandler = new Clock::Handler<Parrot>(this, &Parrot::tick);
     clock = registerClock(params.find<std::string>("clock", "1GHz"), clockHandler);
     clockOn = true;
     timestamp = 0;
-
 
     /* Setup up links */
     if (isPortConnected("high_network_0")) {
@@ -107,9 +111,26 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
     MemEventBase *event = static_cast<MemEventBase*>(ev);
     if (!clockOn) enableClock();
     //TODO: Optimize - give each link pair its own map
-    //printf("pushing to requestQueue\n");
-    threadRequestMap.insert(std::make_pair(event->getID(), threadid));
-    requestQueue.push(event);
+
+    // Detect phase messages
+    if (event->getCmd() == Command::CustomReq) {
+        CustomMemEvent *cme = static_cast<CustomMemEvent*>(ev);
+        ArielCore::PhaseData *pd = static_cast<ArielCore::PhaseData*>(cme->getCustomData());
+        printf("Parrot has recieved a phase message of %d\n", pd->phase);
+    }
+
+    // Foward regular messages, and forward phase messages only if forward is set
+    // User is expected to set forward=False if this is the lowest Parrot
+    // in the hierarchy
+    if (forward || event->getCmd() != Command::CustomReq) {
+        threadRequestMap.insert(std::make_pair(event->getID(), threadid));
+        requestQueue.push(event);
+    }
+
+
+    //TODO: don't put phase messages in queue if forward is false
+    //threadRequestMap.insert(std::make_pair(event->getID(), threadid));
+    //requestQueue.push(event);
 }
 
 void Parrot::handleResponse(SST::Event * ev) {

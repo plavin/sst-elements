@@ -45,6 +45,7 @@ public:
             {"responses_per_cycle", "(uint) Number of responses to forward to threads each cycle (for all threads combined). 0 indicates unlimited", "0"},
             {"debug",               "(uint) Where to print debug output. Options: 0[no output], 1[stdout], 2[stderr], 3[file]", "0"},
             {"debug_level",         "(uint) Debug verbosity level. Between 0 and 10", "0"},
+            {"forward",             "(bool) Whether to forward phase messages to the next level", "false"},
             {"debug_addr",          "(comma separated uint) Address(es) to be debugged. Leave empty for all, otherwise specify one or more, comma-separated values. Start and end string with brackets",""} )
 
     SST_ELI_DOCUMENT_PORTS(
@@ -94,6 +95,9 @@ private:
     uint64_t responsesPerCycle;
     std::queue<MemEventBase*> requestQueue;
     std::queue<MemEventBase*> responseQueue;
+
+    /* Phase forwarding */
+    bool forward;
 
     inline void enableClock();
 };

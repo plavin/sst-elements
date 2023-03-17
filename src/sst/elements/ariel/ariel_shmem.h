@@ -205,7 +205,9 @@ struct ArielSharedData {
 
 class ArielTunnel : public SST::Core::Interprocess::TunnelDef<ArielSharedData, ArielCommand>
 {
+private:
     PhaseDetector pd;
+    bool enablePD;
 public:
     /**
      * Create a new Ariel Tunnel
@@ -232,11 +234,20 @@ public:
             sharedData->child_attached = 0;
 
             pd.init_phase_detector();
+            enablePD = false;
         } else {
             /* Ideally, this would be done atomically, but we'll only have 1 child */
             sharedData->child_attached++;
         }
         return childnum;
+    }
+
+    void enablePhaseDetection() {
+        enablePD = true;
+    }
+
+    void disablePhaseDetection() {
+        enablePD = false;
     }
 
     void waitForChild(void) {
@@ -281,7 +292,7 @@ public:
         // Only read from thread 0 to simplify PD implementation.
         // Only read the message if avail is true
 
-        if ((coreID==0) && avail) {
+        if (enablePD && (coreID==0) && avail) {
             if (ac->command == ARIEL_START_INSTRUCTION) {
                 phase_id_type phase;
                 if (pd.detect(ac->instPtr, &phase)) { //asignment is intended, detect returns true on interval boundary

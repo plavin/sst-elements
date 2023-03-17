@@ -70,6 +70,7 @@ class ArielCPU : public SST::Component {
         {"apparg%(appargcount)d", "Arguments for the traced executable", ""},
         {"arielmode", "Tool interception mode, set to 1 to trace entire program (default), set to 0 to delay tracing until ariel_enable() call., set to 2 to attempt auto-detect", "2"},
         {"arielinterceptcalls", "Toggle intercepting library calls", "0"},
+        {"phase_detection", "Whether to do phase detection", "false"},
         {"arielstack", "Dump stack on malloc calls (also requires enabling arielinterceptcalls). May increase overhead due to keeping a shadow stack.", "0"},
         {"mallocmapfile", "File with valid 'ariel_malloc_flag' ids", ""},
         {"tracePrefix", "Prefix when tracing is enable", ""},
@@ -136,6 +137,7 @@ class ArielCPU : public SST::Component {
         ArielFrontend* frontend;
         ArielTunnel* tunnel;
         bool stopTicking;
+        bool phase_detection;
 
 #ifdef HAVE_CUDA
         GpuReturnTunnel* tunnelR;

@@ -115,6 +115,8 @@ ArielCPU::ArielCPU(ComponentId_t id, Params& params) :
     free(level_buffer);
 /** End memory manager subcomponent parameter translation */
 
+
+    
     std::string memorymanager = params.find<std::string>("memmgr", "ariel.MemoryManagerSimple");
     if (NULL != (memmgr = loadUserSubComponent<ArielMemoryManager>("memmgr"))) {
         output->verbose(CALL_INFO, 1, 0, "Loaded memory manager: %s\n", memmgr->getName().c_str());
@@ -159,6 +161,11 @@ ArielCPU::ArielCPU(ComponentId_t id, Params& params) :
         output->fatal(CALL_INFO, -1, "%s, Error: Loading frontend subcomponent failed. If Ariel was not built with Pin, user must supply a custom frontend in the input file.\n", getName().c_str());
 
     tunnel = frontend->getTunnel();
+
+    phase_detection = params.find<bool>("phase_detection", false);
+    if (phase_detection) {
+        tunnel->enablePhaseDetection();
+    }
 #ifdef HAVE_CUDA
     tunnelR = frontend->getReturnTunnel();
     tunnelD = frontend->getDataTunnel();

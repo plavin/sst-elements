@@ -171,7 +171,7 @@ void ArielCore::printTraceEntry(const bool isRead,
 void ArielCore::commitPhaseEvent(const phase_id_type phase) {
     ArielCore::PhaseData *data = new ArielCore::PhaseData(phase);
     StandardMem::CustomReq *req = new StandardMem::CustomReq(data, 0, 0, 0);
-    //cacheLink->send(req);
+    cacheLink->send(req);
 }
 
 void ArielCore::commitReadEvent(const uint64_t address,
@@ -879,10 +879,9 @@ bool ArielCore::refillQueue() {
 
             case ARIEL_PHASE_CHANGE:
                 // Go ahead and send it, queueing it would be a hassle. The phase has already begun anyways.
-                printf("New phase: %" PRId64 "\n", ac.phaseID);
                 phase_data = new ArielCore::PhaseData(ac.phaseID);
                 req = new StandardMem::CustomReq(phase_data, 0, 0, 0);
-                //cacheLink->send(req);
+                cacheLink->send(req);
 
             case ARIEL_START_INSTRUCTION:
                 if(ARIEL_INST_SP_FP == ac.inst.instClass) {
