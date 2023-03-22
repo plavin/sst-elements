@@ -55,7 +55,8 @@ public:
     SST_ELI_DOCUMENT_STATISTICS(
             {"Addr", "Every read or write address recieved by this parrot", "addresses", 1},
             {"WriteAddr", "Every write address recieved by this parrot", "addresses", 1},
-            {"ReadAddr", "Every read address recieved by this parrot", "addresses", 1} )
+            {"ReadAddr", "Every read address recieved by this parrot", "addresses", 1},
+            {"Latency", "Latencies seen by this parrot", "cycles", 1} )
 
 /* Begin class definition */
     /** Constructor & destructor */
@@ -94,7 +95,8 @@ private:
     TimeConverter* clock;
 
     /** Track outstanding requests for routing responses correctly */
-    std::map<Event::id_type, unsigned int> threadRequestMap;
+    //TODO: Make the value a struct
+    std::map<Event::id_type, std::pair<unsigned int, SimTime_t>> threadRequestMap;
 
     /** Throughput control */
     uint64_t requestsPerCycle;
@@ -109,6 +111,7 @@ private:
     Statistic<Addr>* statAddr;
     Statistic<Addr>* statWriteAddr;
     Statistic<Addr>* statReadAddr;
+    Statistic<SimTime_t>* statLatency;
 
     inline void enableClock();
 };

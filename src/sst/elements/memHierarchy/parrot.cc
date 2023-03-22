@@ -97,10 +97,11 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     requestsPerCycle = params.find<uint64_t>("requests_per_cycle", 0);
     responsesPerCycle = params.find<uint64_t>("responses_per_cycle", 0);
 
-    /* Statistics */ 
+    /* Statistics */
     statAddr       = registerStatistic<Addr>("Addr");
     statWriteAddr  = registerStatistic<Addr>("WriteAddr");
     statReadAddr   = registerStatistic<Addr>("ReadAddr");
+    statLatency    = registerStatistic<SimTime_t>("Latency");
 }
 
 Parrot::~Parrot() {
@@ -126,9 +127,11 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
         printf("Parrot has recieved a phase message of %d\n", pd->phase);
     } else {
         // Non phase messages here
+        /*
         MemEvent *event = static_cast<MemEvent*>(ev); // should be safe - only read, write and flush are sent by Ariel. will likely break other CPUs
         Addr addr = event->getAddr();
         statAddr->addData(addr);
+        */
     }
 
     // Foward regular messages, and forward phase messages only if forward is set
@@ -137,11 +140,11 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
     // Handle non-phase messages
     if (event->getCmd() != Command::CustomReq) {
         //For now, go ahead and send a response
-        threadRequestMap.insert(std::make_pair(event->getID(), threadid));
+        threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
         //auto *responseEvent = event->makeResponse();
-        //requestQueue.push(event);
-        
-        selfLink->send(event->makeResponse());
+        requestQueue.push(event);
+
+        //selfLink->send(event->makeResponse());
     } else if (forward) {
         // Handle phases when forwarding, only phase messages forwarded for now
         requestQueue.push(event);
@@ -183,7 +186,7 @@ bool Parrot::tick(SST::Cycle_t cycle) {
     while (!requestQueue.empty() && sendcount > 0) {
         MemEventBase * event = requestQueue.front();
         //printf("Need to send event\n");
-        unsigned int linkid = threadRequestMap.find(event->getID())->second;
+        unsigned int linkid = threadRequestMap.find(event->getID())->second.first; //second gets us the val, first gets the threadid
         downLinks[linkid]->send(event);
         //printf("sent event on %u\n", linkid);
         requestQueue.pop();
@@ -197,9 +200,13 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         MemEventBase * event = responseQueue.front();
         responseQueue.pop();
 
-        unsigned int linkid = threadRequestMap.find(event->getResponseToID())->second;
+        std::pair<unsigned int, SimTime_t> req_data = threadRequestMap.find(event->getResponseToID())->second;
+        unsigned int linkid = req_data.first;
+        SimTime_t start_time = req_data.second;
         threadRequestMap.erase(event->getResponseToID());
         upLinks[linkid]->send(event);
+
+        statLatency->addData(getCurrentSimTimeNano() - start_time);
 
         sendcount--;
     }
