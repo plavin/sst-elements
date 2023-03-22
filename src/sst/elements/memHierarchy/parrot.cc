@@ -16,6 +16,7 @@
 #include <sst_config.h>
 #include "parrot.h"
 #include "memEventCustom.h"
+#include "memEvent.h"
 #include "../ariel/arielcore.h"
 
 #include <sst/core/params.h>
@@ -89,11 +90,17 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
         }
     }
 
-
+    /* Self link */
+    selfLink = configureSelfLink("Self", "10 ns", new Event::Handler<Parrot>(this, &Parrot::handleResponse));
 
     /* Setup throughput limiting */
     requestsPerCycle = params.find<uint64_t>("requests_per_cycle", 0);
     responsesPerCycle = params.find<uint64_t>("responses_per_cycle", 0);
+
+    /* Statistics */ 
+    statAddr       = registerStatistic<Addr>("Addr");
+    statWriteAddr  = registerStatistic<Addr>("WriteAddr");
+    statReadAddr   = registerStatistic<Addr>("ReadAddr");
 }
 
 Parrot::~Parrot() {
@@ -117,15 +124,43 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
         CustomMemEvent *cme = static_cast<CustomMemEvent*>(ev);
         ArielCore::PhaseData *pd = static_cast<ArielCore::PhaseData*>(cme->getCustomData());
         printf("Parrot has recieved a phase message of %d\n", pd->phase);
+    } else {
+        // Non phase messages here
+        MemEvent *event = static_cast<MemEvent*>(ev); // should be safe - only read, write and flush are sent by Ariel. will likely break other CPUs
+        Addr addr = event->getAddr();
+        statAddr->addData(addr);
     }
 
     // Foward regular messages, and forward phase messages only if forward is set
     // User is expected to set forward=False if this is the lowest Parrot
     // in the hierarchy
-    if (forward || event->getCmd() != Command::CustomReq) {
+    // Handle non-phase messages
+    if (event->getCmd() != Command::CustomReq) {
+        //For now, go ahead and send a response
         threadRequestMap.insert(std::make_pair(event->getID(), threadid));
+        //auto *responseEvent = event->makeResponse();
+        //requestQueue.push(event);
+        
+        selfLink->send(event->makeResponse());
+    } else if (forward) {
+        // Handle phases when forwarding, only phase messages forwarded for now
         requestQueue.push(event);
+    } else {
+        delete ev;
     }
+    /*
+    if (forward || event->getCmd() != Command::CustomReq) {
+        if (event->getCmd() != Command::CustomReq) {
+            threadRequestMap.insert(std::make_pair(event->getID(), threadid));
+            selfLink->send(event->makeResponse());
+        }
+        //requestQueue.push(event);
+
+    } else {
+        delete ev;
+    }
+    */
+
 
 
     //TODO: don't put phase messages in queue if forward is false

@@ -52,6 +52,11 @@ public:
           {"low_network_%(port)d", "Link to lower levels", {"memHierarchy.MemEventBase"} },
           {"high_network_%(port)d", "Links to higher level", {"memHierarchy.MemEventBase"} } )
 
+    SST_ELI_DOCUMENT_STATISTICS(
+            {"Addr", "Every read or write address recieved by this parrot", "addresses", 1},
+            {"WriteAddr", "Every write address recieved by this parrot", "addresses", 1},
+            {"ReadAddr", "Every read address recieved by this parrot", "addresses", 1} )
+
 /* Begin class definition */
     /** Constructor & destructor */
     Parrot(ComponentId_t id, Params &params);
@@ -80,6 +85,7 @@ private:
     /** Links */
     vector<SST::Link*> upLinks;
     vector<SST::Link*> downLinks;
+    SST::Link *selfLink;
 
     /** Timestamp & clock control */
     uint64_t    timestamp;
@@ -98,6 +104,11 @@ private:
 
     /* Phase forwarding */
     bool forward;
+
+    /* Statistics */
+    Statistic<Addr>* statAddr;
+    Statistic<Addr>* statWriteAddr;
+    Statistic<Addr>* statReadAddr;
 
     inline void enableClock();
 };
