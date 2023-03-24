@@ -42,6 +42,13 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
 
     forward = params.find<bool>("forward", false);
 
+    enableTracing = params.find<bool>("enable_tracing", false);
+    if(enableTracing) {
+        traceFile = params.find<std::string>("trace_file", getName() + ".out");
+        traceFileStream.open(traceFile);
+        traceFileStream << "phase rwf threadID addr latency_nano\n";
+    }
+
     /* Setup clock */
     clockHandler = new Clock::Handler<Parrot>(this, &Parrot::tick);
     clock = registerClock(params.find<std::string>("clock", "1GHz"), clockHandler);
@@ -102,9 +109,14 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     statWriteAddr  = registerStatistic<Addr>("WriteAddr");
     statReadAddr   = registerStatistic<Addr>("ReadAddr");
     statLatency    = registerStatistic<SimTime_t>("Latency");
+
+    currentPhase = -1;
 }
 
 Parrot::~Parrot() {
+    if(enableTracing) {
+        traceFileStream.close();
+    }
     while (requestQueue.size()) {
         delete requestQueue.front();
         requestQueue.pop();
@@ -124,6 +136,7 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
     if (event->getCmd() == Command::CustomReq) {
         CustomMemEvent *cme = static_cast<CustomMemEvent*>(ev);
         ArielCore::PhaseData *pd = static_cast<ArielCore::PhaseData*>(cme->getCustomData());
+        currentPhase = pd->phase;
         printf("Parrot has recieved a phase message of %d\n", pd->phase);
     } else {
         // Non phase messages here
@@ -187,6 +200,13 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         MemEventBase * event = requestQueue.front();
         //printf("Need to send event\n");
         unsigned int linkid = threadRequestMap.find(event->getID())->second.first; //second gets us the val, first gets the threadid
+
+        // Requests that don't need a response, flushes and phase messages in our case, don't need to
+        // stick around in this map
+        if (event->queryFlag(MemEventBase::F_NORESPONSE)) {
+            threadRequestMap.erase(event->getID());
+        }
+
         downLinks[linkid]->send(event);
         //printf("sent event on %u\n", linkid);
         requestQueue.pop();
@@ -206,7 +226,25 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         threadRequestMap.erase(event->getResponseToID());
         upLinks[linkid]->send(event);
 
-        statLatency->addData(getCurrentSimTimeNano() - start_time);
+        auto latency = getCurrentSimTimeNano() - start_time;
+        statLatency->addData(latency);
+        if (enableTracing) {
+            MemEvent *me = static_cast<MemEvent*>(event);
+            Command cmd = me->getCmd();
+            std::string rwf = "-";
+            if (cmd == Command::GetSResp) {
+                rwf = "r";
+            } else if (cmd == Command::WriteResp) {
+                rwf = "w";
+            } else {
+                output.fatal(CALL_INFO, -1, "%s, Error: unexpected command in parrot reponse.\n", getName().c_str());
+            }
+            traceFileStream << currentPhase << " " <<
+                            rwf             << " " <<
+                            linkid          << " " <<
+                            me->getAddr()   << " " <<
+                            latency         << "\n";
+        }
 
         sendcount--;
     }

@@ -18,6 +18,7 @@
 
 #include <map>
 #include <queue>
+#include <fstream>
 
 #include <sst/core/event.h>
 #include <sst/core/sst_types.h>
@@ -46,7 +47,9 @@ public:
             {"debug",               "(uint) Where to print debug output. Options: 0[no output], 1[stdout], 2[stderr], 3[file]", "0"},
             {"debug_level",         "(uint) Debug verbosity level. Between 0 and 10", "0"},
             {"forward",             "(bool) Whether to forward phase messages to the next level", "false"},
-            {"debug_addr",          "(comma separated uint) Address(es) to be debugged. Leave empty for all, otherwise specify one or more, comma-separated values. Start and end string with brackets",""} )
+            {"debug_addr",          "(comma separated uint) Address(es) to be debugged. Leave empty for all, otherwise specify one or more, comma-separated values. Start and end string with brackets",""},
+            {"enable_tracing",       "Whether to generate a trace of accesses", "false"},
+            {"trace_file",           "If `trace` is set, the file to write to. ", "[component_name].out"} )
 
     SST_ELI_DOCUMENT_PORTS(
           {"low_network_%(port)d", "Link to lower levels", {"memHierarchy.MemEventBase"} },
@@ -106,6 +109,12 @@ private:
 
     /* Phase forwarding */
     bool forward;
+    int currentPhase;
+
+    /* Tracing */
+    bool enableTracing;
+    std::string traceFile;
+    std::ofstream traceFileStream;
 
     /* Statistics */
     Statistic<Addr>* statAddr;
