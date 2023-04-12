@@ -694,6 +694,22 @@ uint64_t mapped_ariel_cycles()
     return tunnel->getCycles();
 }
 
+/* Send a phase message from the child to the simulator */
+void mapped_ariel_phase(int phase)
+{
+
+    printf("ARIEL: Frontend detected phase change: %d\n", phase);
+    THREADID currentThread = PIN_ThreadId();
+    UINT32 thr = (UINT32) currentThread;
+
+    ArielCommand ac;
+    ac.command = ARIEL_PHASE_CHANGE_NEW;
+    ac.phaseID = phase;
+
+    tunnel->writeMessage(thr, ac);
+
+}
+
 /*
  * Override gettimeofday to return simulated time
  * If ariel_enable is false, returns system gettimeofday value
@@ -1661,6 +1677,11 @@ VOID InstrumentRoutine(RTN rtn, VOID* args)
             fprintf(stderr, "Tool was called with auto-detect enable mode, setting initial output to not be traced.\n");
             enable_output = false;
         }
+        return;
+    } else if (RTN_Name(rtn) == "ariel_phase" || RTN_Name(rtn) == "_ariel_phase" || RTN_Name(rtn) == "__arielfort_MOD_ariel_phase") {
+        fprintf(stderr,"Identified routine: ariel_phase, replacing with Ariel equivalent...\n");
+        RTN_Replace(rtn, (AFUNPTR) mapped_ariel_phase);
+        fprintf(stderr,"Replacement complete.\n");
         return;
     } else if (RTN_Name(rtn) == "gettimeofday" || RTN_Name(rtn) == "_gettimeofday") {
         fprintf(stderr,"Identified routine: gettimeofday, replacing with Ariel equivalent...\n");

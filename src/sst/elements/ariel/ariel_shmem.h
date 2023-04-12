@@ -324,10 +324,8 @@ public:
                 }
             } else if (enableManualPD) {
                 if (ac->command == ARIEL_PHASE_CHANGE_NEW) {
-                    printf("ariel_shmem.h has recieved a phase change: %ld\n", ac->phaseID);
                     if (ac->phaseID != last_phase) {
                         // only message on phase change
-                        ac->command = ARIEL_PHASE_CHANGE;
                         last_phase = ac->phaseID;
                     }
 

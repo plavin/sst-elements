@@ -1598,7 +1598,7 @@ VOID InstrumentRoutine(RTN rtn, VOID* args)
             enable_output = false;
         }
         return;
-    } else if (RTN_Name(rtn) == "ariel_phase" || RTN_Name(rtn) == "_ariel_phase" || RTN_Name(rtn) == "__arielfort_MOD_ariel_enable") {
+    } else if (RTN_Name(rtn) == "ariel_phase" || RTN_Name(rtn) == "_ariel_phase" || RTN_Name(rtn) == "__arielfort_MOD_ariel_phase") {
         fprintf(stderr,"Identified routine: ariel_phase, replacing with Ariel equivalent...\n");
         RTN_Replace(rtn, (AFUNPTR) mapped_ariel_phase);
         fprintf(stderr,"Replacement complete.\n");

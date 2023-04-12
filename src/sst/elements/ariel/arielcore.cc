@@ -876,13 +876,20 @@ bool ArielCore::refillQueue() {
                 fprintf(stdout, "Performing statistics output at simulation time = %" PRIu64 " cycles\n", getCurrentSimTimeNano());
                 performGlobalStatisticOutput();
                 break;
+            case ARIEL_PHASE_CHANGE_NEW:
+                // Go ahead and send it, queueing it would be a hassle. The phase has already begun anyways.
+                // For the new phase changes, we aren't hijacking another instruction. So we do need to do anything else here
+                phase_data = new ArielCore::PhaseData(ac.phaseID);
+                req = new StandardMem::CustomReq(phase_data, 0, 0, 0);
+                cacheLink->send(req);
+                break;
 
             case ARIEL_PHASE_CHANGE:
-            case ARIEL_PHASE_CHANGE_NEW:
                 // Go ahead and send it, queueing it would be a hassle. The phase has already begun anyways.
                 phase_data = new ArielCore::PhaseData(ac.phaseID);
                 req = new StandardMem::CustomReq(phase_data, 0, 0, 0);
                 cacheLink->send(req);
+                //fall through - we hijacked another instruction that still needs to run
 
             case ARIEL_START_INSTRUCTION:
                 if(ARIEL_INST_SP_FP == ac.inst.instClass) {
@@ -922,6 +929,15 @@ bool ArielCore::refillQueue() {
                                     break;
 
                             case ARIEL_END_INSTRUCTION:
+                                    break;
+
+                            // Is is possible (is it? - try removing this) to recieve phase messages in the middle of other instructions. Do the same
+                            // thing we would do above. Just go ahead and send it. Don't bother queueing it.
+                            case ARIEL_PHASE_CHANGE:
+                            case ARIEL_PHASE_CHANGE_NEW:
+                                    phase_data = new ArielCore::PhaseData(ac.phaseID);
+                                    req = new StandardMem::CustomReq(phase_data, 0, 0, 0);
+                                    cacheLink->send(req);
                                     break;
 
                             default:
