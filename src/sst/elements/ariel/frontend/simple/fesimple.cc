@@ -657,6 +657,21 @@ uint64_t mapped_ariel_cycles()
     return tunnel->getCycles();
 }
 
+/* Return the current cycle count from Ariel */
+void mapped_ariel_phase(int phase)
+{
+    // TODO: put a phase message on the tunnel
+    THREADID currentThread = PIN_ThreadId();
+    UINT32 thr = (UINT32) currentThread;
+
+    ArielCommand ac;
+    ac.command = ARIEL_PHASE_CHANGE_NEW;
+    ac.phaseID = phase;
+
+    tunnel->writeMessage(thr, ac);
+
+}
+
 /*
  * Override gettimeofday to return simulated time
  * If ariel_enable is false, returns system gettimeofday value
@@ -1575,13 +1590,18 @@ VOID InstrumentRoutine(RTN rtn, VOID* args)
     }
 
     if (RTN_Name(rtn) == "ariel_enable" || RTN_Name(rtn) == "_ariel_enable" || RTN_Name(rtn) == "__arielfort_MOD_ariel_enable") {
-        fprintf(stderr,"Identified routine: ariel_enable, replacing with Ariel equivalent...\n");
+        fprintf(stderr,"Identified routine: ariel_enable, replacing with Ariel equivalent...PAT...\n");
         RTN_Replace(rtn, (AFUNPTR) mapped_ariel_enable);
         fprintf(stderr,"Replacement complete.\n");
         if (StartupMode.Value() == 2) {
             fprintf(stderr, "Tool was called with auto-detect enable mode, setting initial output to not be traced.\n");
             enable_output = false;
         }
+        return;
+    } else if (RTN_Name(rtn) == "ariel_phase" || RTN_Name(rtn) == "_ariel_phase" || RTN_Name(rtn) == "__arielfort_MOD_ariel_enable") {
+        fprintf(stderr,"Identified routine: ariel_phase, replacing with Ariel equivalent...\n");
+        RTN_Replace(rtn, (AFUNPTR) mapped_ariel_phase);
+        fprintf(stderr,"Replacement complete.\n");
         return;
     } else if (RTN_Name(rtn) == "gettimeofday" || RTN_Name(rtn) == "_gettimeofday") {
         fprintf(stderr,"Identified routine: gettimeofday, replacing with Ariel equivalent...\n");
@@ -1741,6 +1761,8 @@ VOID InstrumentRoutine(RTN rtn, VOID* args)
             RTN_Replace(rtn, (AFUNPTR) mapped_ariel_malloc_flag_fortran);
             return;
         }
+    } else {
+        printf("PATRICK - fesimple.cc - choosing not to instrument routine: %s\n", RTN_Name(rtn))
     }
 }
 

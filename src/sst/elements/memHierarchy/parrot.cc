@@ -154,7 +154,8 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
     if (event->getCmd() != Command::CustomReq) {
         //For now, go ahead and send a response
         threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
-        //auto *responseEvent = event->makeResponse();
+        //selfLink->send(event->makeResponse());
+        //PATRICK Uncomment following line to get normal behavior. Uncomment previous line to send all messages back to higher level
         requestQueue.push(event);
 
         //selfLink->send(event->makeResponse());

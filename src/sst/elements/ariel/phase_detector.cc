@@ -34,10 +34,10 @@ using namespace std;
 //phase detector class defined in phase_detector.h
 
 
-double PhaseDetector::difference_measure_of_signatures(bitvec sig1, bitvec sig2) {
+double PhaseDetector::difference_measure_of_signatures(signature_t sig1, signature_t sig2) {
     // auto xor_signatures = sig1 ^ sig2;
     // auto or_signatures = sig1 | sig2;
-    return static_cast<double>((sig1 ^ sig2).count()) / (sig1 | sig2).count(); // this should work with any compiler
+    return static_cast<double>((sig1.bv ^ sig2.bv).count()) / (sig1.bv | sig2.bv).count(); // this should work with any compiler
     // return ((double) xor_signatures.__builtin_count()) / or_signatures.__builtin_count(); // this might only work with GCC
 }
 
@@ -58,7 +58,11 @@ uint64_t PhaseDetector::hash_address(uint64_t address) {
 }
 
 bool PhaseDetector::detect(uint64_t instruction_pointer, phase_id_type *new_phase) {
-    current_signature[hash_address(instruction_pointer)] = 1;
+    current_signature.bv[hash_address(instruction_pointer)] = 1;
+    //sum_delta += last_ip == 0 ? 0 : (((double)instruction_pointer-last_ip)) / phase_detector_constants::interval_len;
+   //printf("Summing: %lf\n", (((double)instruction_pointer-last_ip)) / phase_detector_constants::interval_len);
+   //printf("Delta: %" PRId64 "\n", (int64_t)instruction_pointer - (int64_t)last_ip);
+   //last_ip = instruction_pointer;
     phase_id_type ret = increment_instruction_count();
     *new_phase = ret;
     if (ret != -2) { // -2 indicates no change, -1 is transition phase, 0.. is a real phase
@@ -103,7 +107,9 @@ phase_id_type PhaseDetector::increment_instruction_count() {
             }
             //whether or not the phase is stable, we need to update last phase and whatnot
             last_signature = current_signature;
-            current_signature.reset();
+            current_signature.bv.reset();
+            //printf("Sum delta: %lf\n", sum_delta);
+            sum_delta = 0;
 
             //add the current phase ID to the phase trace - from line 209 in python
             phase_trace.push_back(phase);
@@ -121,8 +127,8 @@ phase_id_type PhaseDetector::increment_instruction_count() {
 }
 
 void PhaseDetector::init_phase_detector() {
-    current_signature.reset();
-    last_signature.reset();
+    current_signature.bv.reset();
+    last_signature.bv.reset();
     // hash_bitvec
     instruction_count = 0;
     stable_count = 0;
@@ -130,6 +136,8 @@ void PhaseDetector::init_phase_detector() {
     phase_table.clear();
     phase_trace.clear();
     listeners.clear();
+    sum_delta = 0;
+    last_ip = 0;
 }
 
 void PhaseDetector::print_log_file(string log_file_name) {

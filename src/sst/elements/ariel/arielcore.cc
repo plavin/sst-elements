@@ -878,6 +878,7 @@ bool ArielCore::refillQueue() {
                 break;
 
             case ARIEL_PHASE_CHANGE:
+            case ARIEL_PHASE_CHANGE_NEW:
                 // Go ahead and send it, queueing it would be a hassle. The phase has already begun anyways.
                 phase_data = new ArielCore::PhaseData(ac.phaseID);
                 req = new StandardMem::CustomReq(phase_data, 0, 0, 0);

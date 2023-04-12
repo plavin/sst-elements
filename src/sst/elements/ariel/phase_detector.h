@@ -60,8 +60,8 @@ using namespace std;
 // #define drop_bits 3
 
 namespace phase_detector_constants {
-    constexpr double threshold = 0.70; //modsim
-    constexpr uint64_t interval_len = 1000; //modsim
+    constexpr double threshold = 0.5; //modsim
+    constexpr uint64_t interval_len = 10000; //modsim
     //constexpr uint signature_len = 1024;
     constexpr uint signature_len = 1024;
     constexpr uint log2_signature_len = 10;
@@ -108,21 +108,28 @@ struct _simple_ins_ref_t {
 
 typedef struct _simple_ins_ref_t simple_ins_ref_t;
 
+typedef struct {
+    bitvec bv;
+    double mean_stride;
+} signature_t;
+
 class PhaseDetector {
     private:
-        bitvec current_signature;
-        bitvec last_signature;
+        signature_t current_signature;
+        signature_t last_signature;
 
         // static hash<bitset<64>> hash_bitvec();
         //hash<uint64_t> hash_bitvec;
 
         uint64_t instruction_count = 0;
         uint64_t stable_count = 0;
-        
+        uint64_t last_ip = 0;
+        double sum_delta = 0;
+
         phase_id_type phase = -1;
 
-        vector<bitvec> phase_table;
-        
+        vector<signature_t> phase_table;
+
         //phase trace?? should it be deque/stack or vector/arraylist?
 
         // vector<phase_id_type> phase_trace;
@@ -134,7 +141,7 @@ class PhaseDetector {
 
         const uint64_t stable_min = 3; //modsim
 
-        double difference_measure_of_signatures(bitvec sig1, bitvec sig2);
+        double difference_measure_of_signatures(signature_t sig1, signature_t sig2);
         uint64_t hash_address(uint64_t address);
         bool detect(uint64_t instruction_pointer, phase_id_type *new_phase);
         void init_phase_detector();

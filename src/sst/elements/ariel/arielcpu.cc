@@ -163,9 +163,20 @@ ArielCPU::ArielCPU(ComponentId_t id, Params& params) :
     tunnel = frontend->getTunnel();
 
     phase_detection = params.find<bool>("phase_detection", false);
+    manual_pd = params.find<bool>("manual_pd", false);
+
+    if (phase_detection && manual_pd) {
+        output->fatal(CALL_INFO, -1, "Both phase_detection and manual_pd should not be set to true\n");
+    }
+
     if (phase_detection) {
         tunnel->enablePhaseDetection();
     }
+    else if (manual_pd) {
+        printf("arielcpu.cc: Enabling manual phase detection.\n");
+        tunnel->enableManualPhaseDetection();
+    }
+
 #ifdef HAVE_CUDA
     tunnelR = frontend->getReturnTunnel();
     tunnelD = frontend->getDataTunnel();

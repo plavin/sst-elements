@@ -68,6 +68,7 @@ enum ArielShmemCmd_t {
     ARIEL_FLUSHLINE_INSTRUCTION = 154,
     ARIEL_FENCE_INSTRUCTION = 155,
     ARIEL_PHASE_CHANGE = 180,
+    ARIEL_PHASE_CHANGE_NEW = 181,
 };
 
 #ifdef HAVE_CUDA
@@ -141,6 +142,7 @@ struct ArielCommand {
             uint32_t simdElemCount;
             uint8_t  payload[ARIEL_MAX_PAYLOAD_SIZE];
         } inst;
+
         struct {
             uint64_t vaddr;
             uint64_t alloc_len;
@@ -208,6 +210,7 @@ class ArielTunnel : public SST::Core::Interprocess::TunnelDef<ArielSharedData, A
 private:
     PhaseDetector pd;
     bool enablePD;
+    bool enableManualPD;
 public:
     /**
      * Create a new Ariel Tunnel
@@ -235,6 +238,7 @@ public:
 
             pd.init_phase_detector();
             enablePD = false;
+            enableManualPD = false;
         } else {
             /* Ideally, this would be done atomically, but we'll only have 1 child */
             sharedData->child_attached++;
@@ -248,6 +252,14 @@ public:
 
     void disablePhaseDetection() {
         enablePD = false;
+    }
+
+    void enableManualPhaseDetection() {
+        enableManualPD = true;
+    }
+
+    void disableManualPhaseDetection() {
+        enableManualPD = false;
     }
 
     void waitForChild(void) {
@@ -292,18 +304,35 @@ public:
         // Only read from thread 0 to simplify PD implementation.
         // Only read the message if avail is true
 
-        if (enablePD && (coreID==0) && avail) {
-            if (ac->command == ARIEL_START_INSTRUCTION) {
-                phase_id_type phase;
-                if (pd.detect(ac->instPtr, &phase)) { //asignment is intended, detect returns true on interval boundary
-                    // Change command to have the core generate a phase change packet that notifies the system
-                    if (phase != last_phase) {
-                        // only message on phase change
-                        ac->command = ARIEL_PHASE_CHANGE;
-                        ac->phaseID = phase;
-                        last_phase = phase;
+        if ((coreID==0) && avail) {
+            if (enablePD) {
+                if (ac->command == ARIEL_START_INSTRUCTION) {
+                    phase_id_type phase;
+                    // IP based
+                    //if (pd.detect(ac->instPtr, &phase)) { //asignment is intended, detect returns true on interval boundary
+                    // Vaddr based
+                    if (pd.detect(ac->inst.addr, &phase)) { //asignment is intended, detect returns true on interval boundary
+                        // Change command to have the core generate a phase change packet that notifies the system
+                        if (phase != last_phase) {
+                            //TODO: only message on phase change
+                            //TODO: Actually, just start messaging on every inteval boundary. Let the parrot decide what to do.
+                            ac->command = ARIEL_PHASE_CHANGE;
+                            ac->phaseID = phase;
+                            last_phase = phase;
+                        }
                     }
                 }
+            } else if (enableManualPD) {
+                if (ac->command == ARIEL_PHASE_CHANGE_NEW) {
+                    printf("ariel_shmem.h has recieved a phase change: %ld\n", ac->phaseID);
+                    if (ac->phaseID != last_phase) {
+                        // only message on phase change
+                        ac->command = ARIEL_PHASE_CHANGE;
+                        last_phase = ac->phaseID;
+                    }
+
+                }
+
             }
         }
 

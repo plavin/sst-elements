@@ -27,6 +27,10 @@ void ariel_fence() {
     printf("ARIEL: FENCE called in Ariel API.\n");
 }
 
+void ariel_phase(int phase) {
+    printf("ARIEL: ariel_phase called in Ariel API.\n");
+}
+
 uint64_t ariel_cycles() {
     return 0;
 }

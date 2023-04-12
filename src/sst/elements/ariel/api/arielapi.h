@@ -35,6 +35,9 @@ void ariel_enable();
 /* Execute a fence */
 void ariel_fence();
 
+/* Send a phase message */
+void ariel_phase(int phase);
+
 /* Return the number of simulated cycles since simulation begin */
 uint64_t ariel_cycles();
 
