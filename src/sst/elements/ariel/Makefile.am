@@ -50,7 +50,6 @@ libariel_la_SOURCES = \
 	arielgpuev.h \
 	tb_header.h \
 	arielrtlev.h \
-	phase_detector.cc \
 	phase_detector.h
 
 EXTRA_DIST = \
@@ -116,6 +115,7 @@ sstdir = $(includedir)/sst/elements/ariel
 nobase_sst_HEADERS = \
 	ariel_shmem.h \
 	arieltracegen.h \
+	phase_detector.h \
 	arielmemmgr.h
 
 libexec_PROGRAMS =
@@ -197,6 +197,7 @@ fesimple.o : $(top_srcdir)/src/sst/elements/ariel/frontend/pin3/fesimple.cc
 	    -I$(PINTOOL_DIR)/source/tools/Utils \
 	    -I$(PINTOOL_DIR)/source/tools/InstLib \
 	    -O3 -fomit-frame-pointer -fno-strict-aliasing -c $(top_srcdir)/src/sst/elements/ariel/frontend/pin3/fesimple.cc
+
 else
 
 fesimple.so : fesimple.o
@@ -230,6 +231,7 @@ fesimple.o : $(top_srcdir)/src/sst/elements/ariel/frontend/pin3/fesimple.cc
 	    -I$(PINTOOL_DIR)/source/tools/Utils \
 	    -I$(PINTOOL_DIR)/source/tools/InstLib \
 	    -O3 -fomit-frame-pointer -fno-strict-aliasing -c $(top_srcdir)/src/sst/elements/ariel/frontend/pin3/fesimple.cc
+
 endif
 
 install-exec-hook:
