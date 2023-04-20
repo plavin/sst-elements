@@ -309,9 +309,9 @@ public:
                 if (ac->command == ARIEL_START_INSTRUCTION) {
                     phase_id_type phase;
                     // IP based
-                    //if (pd.detect(ac->instPtr, &phase)) { //asignment is intended, detect returns true on interval boundary
+                    if (pd.detect(ac->instPtr, &phase)) { //asignment is intended, detect returns true on interval boundary
                     // Vaddr based
-                    if (pd.detect(ac->inst.addr, &phase)) { //asignment is intended, detect returns true on interval boundary
+                    //if (pd.detect(ac->inst.addr, &phase)) { //asignment is intended, detect returns true on interval boundary
                         // Change command to have the core generate a phase change packet that notifies the system
                         if (phase != last_phase) {
                             //TODO: only message on phase change

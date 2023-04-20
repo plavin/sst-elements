@@ -939,6 +939,8 @@ bool ArielCore::refillQueue() {
                                     req = new StandardMem::CustomReq(phase_data, 0, 0, 0);
                                     cacheLink->send(req);
                                     break;
+                            case ARIEL_NOOP:
+                                    break;
 
                             default:
                                     // Not sure what this is

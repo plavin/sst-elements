@@ -232,19 +232,22 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         if (enableTracing) {
             MemEvent *me = static_cast<MemEvent*>(event);
             Command cmd = me->getCmd();
-            std::string rwf = "-";
-            if (cmd == Command::GetSResp) {
-                rwf = "r";
-            } else if (cmd == Command::WriteResp) {
-                rwf = "w";
-            } else {
-                output.fatal(CALL_INFO, -1, "%s, Error: unexpected command in parrot reponse.\n", getName().c_str());
+            // Don't worry about Flush responses
+            if (cmd != Command::FlushAllResp && cmd != Command::FlushLineResp) {
+                std::string rwf = "-";
+                if (cmd == Command::GetSResp) {
+                    rwf = "r";
+                } else if (cmd == Command::WriteResp) {
+                    rwf = "w";
+                } else {
+                    output.fatal(CALL_INFO, -1, "%s, Error: unexpected command in parrot reponse.\n", getName().c_str());
+                }
+                traceFileStream << currentPhase << " " <<
+                                rwf             << " " <<
+                                linkid          << " " <<
+                                me->getAddr()   << " " <<
+                                latency         << "\n";
             }
-            traceFileStream << currentPhase << " " <<
-                            rwf             << " " <<
-                            linkid          << " " <<
-                            me->getAddr()   << " " <<
-                            latency         << "\n";
         }
 
         sendcount--;
