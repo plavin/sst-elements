@@ -884,9 +884,25 @@ bool ArielCore::refillQueue() {
                 }
 
                 while(ac.command != ARIEL_END_INSTRUCTION) {
-                        ac = tunnel->readMessage(coreID);
+                        // We can't assume that the next instruction is already in the tunnel. Need to
+                        // use a non-blocking call here. Wait here until we get more on the tunnel.
+
+                        ArielCommand lc = ac;
+                        bool avail = false;
+                        do {
+                            avail = tunnel->readMessageNB(coreID, &ac);
+                        } while(!avail);
+
+                        
+
+                        //ac = tunnel->readMessage(coreID);
 
                         switch(ac.command) {
+                            /*
+                            case ARIEL_NOOP:
+                            case ARIEL_START_INSTRUCTION:
+                                    continue; // we do a little hacking
+                                    */
                             case ARIEL_PERFORM_READ:
                                     createReadEvent(ac.inst.addr, ac.inst.size);
                                     break;
@@ -900,7 +916,17 @@ bool ArielCore::refillQueue() {
 
                             default:
                                     // Not sure what this is
-                                    output->fatal(CALL_INFO, -1, "Error: Ariel did not understand command (%d) provided during instruction queue refill.\n", (int)(ac.command));
+
+                                    printf("Reading one more instruction:\n");
+                                    ArielCommand ac2;
+                                    bool avail = false;
+                                    do {
+                                        avail = tunnel->readMessageNB(coreID, &ac2);
+                                    } while(!avail);
+
+                                    printf("Next command was (%d) (%" PRIx64 ")\n", ac2.command, ac2.instPtr);
+
+                                    output->fatal(CALL_INFO, -1, "Error: Ariel did not understand command (%d) (IP: %" PRIx64 ") provided during instruction queue refill. Last command was (%d) (IP: %" PRIx64 ")\n", (int)(ac.command), ac.instPtr, (int)(lc.command), lc.instPtr);
                                     break;
                         }
                 }
@@ -953,7 +979,16 @@ bool ArielCore::refillQueue() {
 
             default:
                 // Not sure what this is
-                output->fatal(CALL_INFO, -1, "Error: Ariel did not understand command (%d) provided during instruction queue refill.\n", (int)(ac.command));
+
+                printf("Reading one more instruction:\n");
+                ArielCommand ac2;
+                bool avail = false;
+                do {
+                    avail = tunnel->readMessageNB(coreID, &ac2);
+                } while(!avail);
+                printf("Next command was (%d) (%" PRIx64 ")\n", ac2.command, ac2.instPtr);
+
+                output->fatal(CALL_INFO, -1, "Error: Ariel did not understand command (%d) (%" PRIx64 ") provided during instruction queue refill.\n", (int)(ac.command), ac.instPtr);
                 break;
         }
     }
