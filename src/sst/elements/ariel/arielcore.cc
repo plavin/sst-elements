@@ -19,6 +19,7 @@
 #include <iostream>
 #include <exception>
 #include <stdexcept>
+#include <limits>
 
 #ifdef HAVE_CUDA
 #include <../balar/balar_event.h>
@@ -884,15 +885,12 @@ bool ArielCore::refillQueue() {
                 }
 
                 while(ac.command != ARIEL_END_INSTRUCTION) {
-                        // We can't assume that the next instruction is already in the tunnel. Need to
-                        // use a non-blocking call here. Wait here until we get more on the tunnel.
 
+                        // Copy last command to use in debug output
                         ArielCommand lc = ac;
-                        bool avail = false;
-                        do {
-                            avail = tunnel->readMessageNB(coreID, &ac);
-                        } while(!avail);
+                        ac = tunnel->readMessage(coreID);
 
+                        // Detect if the 
                         
 
                         //ac = tunnel->readMessage(coreID);
@@ -917,14 +915,23 @@ bool ArielCore::refillQueue() {
                             default:
                                     // Not sure what this is
 
+                                    printf("Note: sizeof(size_t) is %lu\n", sizeof(size_t));
+                                    printf("Min size_t: %zu\n", numeric_limits<size_t>::min());
+                                    printf("Max size_t: %zu\n", numeric_limits<size_t>::max());
+
                                     printf("Reading one more instruction:\n");
                                     ArielCommand ac2;
-                                    bool avail = false;
-                                    do {
-                                        avail = tunnel->readMessageNB(coreID, &ac2);
-                                    } while(!avail);
+                                    ac2 = tunnel->readMessage(coreID);
 
-                                    printf("Next command was (%d) (%" PRIx64 ")\n", ac2.command, ac2.instPtr);
+                                    int showme = 9;
+                                    printf("Printing next %d commands:\n", showme);
+                                    printf("  %d (%d) (IP: 0x%" PRIx64 ")\n", 1, lc.command, lc.instPtr & 0xffff);
+                                    printf("  %d (%d) (IP: 0x%" PRIx64 ")\n", 0, ac.command, ac.instPtr & 0xffff);
+                                    for (int i = 0; i < showme; i++){
+                                        ac2 = tunnel->readMessage(coreID);
+                                        printf("  %d (%d) (IP: 0x%" PRIx64 ")\n", i+1, ac2.command, ac2.instPtr & 0xffff);
+                                    }
+                                    printf("\n");
 
                                     output->fatal(CALL_INFO, -1, "Error: Ariel did not understand command (%d) (IP: %" PRIx64 ") provided during instruction queue refill. Last command was (%d) (IP: %" PRIx64 ")\n", (int)(ac.command), ac.instPtr, (int)(lc.command), lc.instPtr);
                                     break;

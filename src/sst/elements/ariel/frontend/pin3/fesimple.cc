@@ -547,12 +547,12 @@ VOID InstrumentInstruction(INS ins, VOID *v)
             }
         }
     }
-   
+
     UINT32 operands = INS_MemoryOperandCount(ins);
     for (UINT32 op = 0; op < operands; op++) {
         BOOL first = (op == 0);
         BOOL last = (op == (operands - 1));
-        
+
         if (INS_MemoryOperandIsRead(ins, op)) {
             INS_InsertPredicatedCall(ins, IPOINT_BEFORE, (AFUNPTR)
                     WriteInstructionReadOnly,
