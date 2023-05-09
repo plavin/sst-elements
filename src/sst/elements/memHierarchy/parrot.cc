@@ -14,6 +14,7 @@
 // distribution.
 
 #include <sst_config.h>
+#include <utility>
 #include "parrot.h"
 #include "memEventCustom.h"
 #include "memEvent.h"
@@ -47,6 +48,50 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
         traceFile = params.find<std::string>("trace_file", getName() + ".out");
         traceFileStream.open(traceFile);
         traceFileStream << "phase rwf threadID addr latency_nano\n";
+    }
+
+    numAccesses = 0;
+    haveRR = false;
+    rrString = params.find<std::string>("rr_temp", "");
+    completeRR[-1] = false;
+    rng = new RNG::MersenneRNG(rng_seed);
+
+    if (!rrString.empty()) {
+        printf("rrString: %s\n", rrString.c_str());
+        haveRR = true;
+        std::istringstream iss(rrString);
+        std::string benchmarkName;
+        iss >> rrFile >> benchmarkName;
+        printf("Getting RRs: [%s] [%s]\n", rrFile.c_str(), benchmarkName.c_str());
+        std::ifstream rrFileStream(rrFile);
+        if (!rrFileStream.good()) {
+            output.fatal(CALL_INFO, 1, "Bad RR file");
+        }
+
+        std::string line, rrBench, rrPID, rrStart, rrEnd;
+        while (getline(rrFileStream, line)) {
+            std::istringstream iss(line);
+            iss >> rrBench >> rrPID >> rrStart >> rrEnd;
+            if (benchmarkName.compare(rrBench)){
+                continue;
+            }
+
+            rrMap[std::stoi(rrPID)] = std::pair<int,int>(std::stoi(rrStart), std::stoi(rrEnd));
+            rrRegion[std::stoi(rrPID)] = new std::vector<SimTime_t>();
+            completeRR[std::stoi(rrPID)] = false;
+        }
+        if (rrMap.size() == 0) {
+            //printf("[RR] Didn't find anything.\n");
+            haveRR = false;
+        } else {
+            //printf("[RR] printing map...\n");
+        }
+
+        /*
+        for (auto const& x : rrMap) {
+            printf("%d: (%d, %d)\n", x.first, std::get<0>(x.second), std::get<1>(x.second));
+        }
+        */
     }
 
     /* Setup clock */
@@ -153,10 +198,15 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
     // Handle non-phase messages
     if (event->getCmd() != Command::CustomReq) {
         //For now, go ahead and send a response
-        threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
-        //selfLink->send(event->makeResponse());
-        //PATRICK Uncomment following line to get normal behavior. Uncomment previous line to send all messages back to higher level
-        requestQueue.push(event);
+        if (completeRR[currentPhase]) {
+            uint32_t rdm_idx = rng->generateNextUInt32();
+            rdm_idx = rdm_idx % (rrRegion[currentPhase])->size();
+            selfLink->send((*rrRegion[currentPhase])[rdm_idx], event->makeResponse());
+        } else {
+            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
+            requestQueue.push(event);
+        }
+
 
         //selfLink->send(event->makeResponse());
     } else if (forward) {
@@ -229,6 +279,22 @@ bool Parrot::tick(SST::Cycle_t cycle) {
 
         auto latency = getCurrentSimTimeNano() - start_time;
         statLatency->addData(latency);
+
+        // If we are in a phase, and RR is enabled, add to map
+        numAccesses++;
+        if (haveRR){
+
+            if (numAccesses == std::get<0>(rrMap[currentPhase])) {
+                printf("[RR]: started tracing\n");
+            }
+            if ( (numAccesses >= std::get<0>(rrMap[currentPhase])) && (numAccesses < std::get<1>(rrMap[currentPhase])) ) {
+                rrRegion[currentPhase]->push_back(latency);
+            }
+            if (numAccesses == std::get<1>(rrMap[currentPhase])) {
+                printf("[RR]: stopped tracing\n");
+                completeRR[currentPhase] = true;
+            }
+        }
         if (enableTracing) {
             MemEvent *me = static_cast<MemEvent*>(event);
             Command cmd = me->getCmd();

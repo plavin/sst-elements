@@ -26,6 +26,7 @@
 #include <sst/core/link.h>
 #include <sst/core/timeConverter.h>
 #include <sst/core/output.h>
+#include <sst/core/rng/mersenne.h>
 
 #include "sst/elements/memHierarchy/memEventBase.h"
 #include "sst/elements/memHierarchy/util.h"
@@ -49,7 +50,8 @@ public:
             {"forward",             "(bool) Whether to forward phase messages to the next level", "false"},
             {"debug_addr",          "(comma separated uint) Address(es) to be debugged. Leave empty for all, otherwise specify one or more, comma-separated values. Start and end string with brackets",""},
             {"enable_tracing",       "Whether to generate a trace of accesses", "false"},
-            {"trace_file",           "If `trace` is set, the file to write to. ", "[component_name].out"} )
+            {"trace_file",           "If `trace` is set, the file to write to. ", "[component_name].out"},
+            {"rr_temp",              "format: 'filename benchmark' - temporary way to hardcode representative regions", ""} )
 
     SST_ELI_DOCUMENT_PORTS(
           {"low_network_%(port)d", "Link to lower levels", {"memHierarchy.MemEventBase"} },
@@ -115,6 +117,18 @@ private:
     bool enableTracing;
     std::string traceFile;
     std::ofstream traceFileStream;
+
+    /* Representative Regions */
+    bool haveRR;
+    std::string rrString;
+    std::string rrFile;
+    std::map<int, std::pair<int, int>> rrMap;
+    std::map<int, std::vector<SimTime_t>*> rrRegion;
+    std::map<int, bool> completeRR;
+    RNG::MersenneRNG* rng;
+    int rng_seed = 1206;
+    int numAccesses;
+
 
     /* Statistics */
     Statistic<Addr>* statAddr;
