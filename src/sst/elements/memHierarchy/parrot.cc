@@ -143,7 +143,7 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     }
 
     /* Self link */
-    selfLink = configureSelfLink("Self", "10 ns", new Event::Handler<Parrot>(this, &Parrot::handleResponse));
+    selfLink = configureSelfLink("Self", "1 ns", new Event::Handler<Parrot>(this, &Parrot::handleResponse));
 
     /* Setup throughput limiting */
     requestsPerCycle = params.find<uint64_t>("requests_per_cycle", 0);
@@ -201,7 +201,10 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
         if (completeRR[currentPhase]) {
             uint32_t rdm_idx = rng->generateNextUInt32();
             rdm_idx = rdm_idx % (rrRegion[currentPhase])->size();
-            selfLink->send((*rrRegion[currentPhase])[rdm_idx], event->makeResponse());
+            // factor converts ns to cycles
+            SimTime_t delay = (*rrRegion[currentPhase])[rdm_idx]-1; // subtract 1 for 1ns link latency
+            delay = delay < 0 ? 0 : delay; // min is 0 cycles
+            selfLink->send(delay, event->makeResponse());
         } else {
             threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
             requestQueue.push(event);
