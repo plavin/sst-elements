@@ -153,8 +153,8 @@ class ArielCore : public ComponentExtension {
         void unfence();
         void finishCore();
         void createPhaseEvent(phase_id_type phase);
-        void createReadEvent(uint64_t addr, uint32_t size);
-        void createWriteEvent(uint64_t addr, uint32_t size, const uint8_t* payload);
+        void createReadEvent(uint64_t addr, uint32_t size, uint64_t iPtr);
+        void createWriteEvent(uint64_t addr, uint32_t size, const uint8_t* payload, uint64_t iPtr);
         void createAllocateEvent(uint64_t vAddr, uint64_t length, uint32_t level, uint64_t ip);
         void createMmapEvent(uint32_t fileID, uint64_t vAddr, uint64_t length, uint32_t level, uint64_t instPtr);
         void createNoOpEvent();
@@ -220,8 +220,8 @@ class ArielCore : public ComponentExtension {
         bool handleInterrupt(ArielMemoryManager::InterruptAction action);
 
         void commitPhaseEvent(const phase_id_type phase);
-        void commitReadEvent(const uint64_t address, const uint64_t virtAddr, const uint32_t length);
-        void commitWriteEvent(const uint64_t address, const uint64_t virtAddr, const uint32_t length, const uint8_t* payload);
+        void commitReadEvent(const uint64_t address, const uint64_t virtAddr, const uint32_t length, uint64_t iPtr);
+        void commitWriteEvent(const uint64_t address, const uint64_t virtAddr, const uint32_t length, const uint8_t* payload, uint64_t iPtr);
         void commitFlushEvent(const uint64_t address, const uint64_t virtAddr, const uint32_t length);
 
         // Setting the max number of instructions to be simulated

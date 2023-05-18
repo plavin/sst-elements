@@ -47,7 +47,7 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     if(enableTracing) {
         traceFile = params.find<std::string>("trace_file", getName() + ".out");
         traceFileStream.open(traceFile);
-        traceFileStream << "phase rwf threadID addr latency_nano\n";
+        traceFileStream << "ip phase rwf threadID addr latency_nano\n";
     }
 
     numAccesses = 0;
@@ -301,6 +301,7 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         if (enableTracing) {
             MemEvent *me = static_cast<MemEvent*>(event);
             Command cmd = me->getCmd();
+
             // Don't worry about Flush responses
             if (cmd != Command::FlushAllResp && cmd != Command::FlushLineResp) {
                 std::string rwf = "-";
@@ -311,11 +312,12 @@ bool Parrot::tick(SST::Cycle_t cycle) {
                 } else {
                     output.fatal(CALL_INFO, -1, "%s, Error: unexpected command in parrot reponse.\n", getName().c_str());
                 }
-                traceFileStream << currentPhase << " " <<
-                                rwf             << " " <<
-                                linkid          << " " <<
-                                me->getAddr()   << " " <<
-                                latency         << "\n";
+                traceFileStream << me->getInstructionPointer() << " " <<
+                                   currentPhase                << " " <<
+                                   rwf                         << " " <<
+                                   linkid                      << " " <<
+                                   me->getAddr()               << " " <<
+                                   latency                     << "\n";
             }
         }
 

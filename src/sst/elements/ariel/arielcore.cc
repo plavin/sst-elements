@@ -175,9 +175,10 @@ void ArielCore::commitPhaseEvent(const phase_id_type phase) {
 }
 
 void ArielCore::commitReadEvent(const uint64_t address,
-            const uint64_t virtAddress, const uint32_t length) {
+            const uint64_t virtAddress, const uint32_t length, uint64_t iPtr) {
     if(length > 0) {
         StandardMem::Read *req = new StandardMem::Read(address, length, 0, virtAddress);
+        req->iPtr = iPtr;
 #ifdef HAVE_CUDA
         if(isGpuEx()){
             pending_transaction_count++;
@@ -199,7 +200,7 @@ void ArielCore::commitReadEvent(const uint64_t address,
 }
 
 void ArielCore::commitWriteEvent(const uint64_t address,
-        const uint64_t virtAddress, const uint32_t length, const uint8_t* payload) {
+        const uint64_t virtAddress, const uint32_t length, const uint8_t* payload, uint64_t iPtr) {
 
     if(length > 0) {
         std::vector<uint8_t> data;
@@ -225,6 +226,7 @@ void ArielCore::commitWriteEvent(const uint64_t address,
         }
         
         StandardMem::Write *req = new StandardMem::Write(address, length, data, false, 0, virtAddress);
+        req->iPtr = iPtr;
 
 #ifdef HAVE_CUDA
         if(isGpuEx()){
@@ -694,8 +696,8 @@ void ArielCore::createPhaseEvent(phase_id_type phase) {
     ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Generated a PHASE CHANGE event, addr=%" PRIu64 "\n", phase));
 }
 
-void ArielCore::createReadEvent(uint64_t address, uint32_t length) {
-    ArielReadEvent* ev = new ArielReadEvent(address, length);
+void ArielCore::createReadEvent(uint64_t address, uint32_t length, uint64_t iPtr) {
+    ArielReadEvent* ev = new ArielReadEvent(address, length, iPtr);
     coreQ->push(ev);
 
     ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Generated a READ event, addr=%" PRIu64 ", length=%" PRIu32 "\n", address, length));
@@ -724,8 +726,8 @@ void ArielCore::createFreeEvent(uint64_t vAddr) {
     ARIEL_CORE_VERBOSE(2, output->verbose(CALL_INFO, 2, 0, "Generated a free event for virtual address=%" PRIu64 "\n", vAddr));
 }
 
-void ArielCore::createWriteEvent(uint64_t address, uint32_t length, const uint8_t* payload) {
-    ArielWriteEvent* ev = new ArielWriteEvent(address, length, payload);
+void ArielCore::createWriteEvent(uint64_t address, uint32_t length, const uint8_t* payload, uint64_t iPtr) {
+    ArielWriteEvent* ev = new ArielWriteEvent(address, length, payload, iPtr);
     coreQ->push(ev);
 
     ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Generated a WRITE event, addr=%" PRIu64 ", length=%" PRIu32 "\n", address, length));
@@ -918,14 +920,13 @@ bool ArielCore::refillQueue() {
 
                 while(ac.command != ARIEL_END_INSTRUCTION) {
                         ac = tunnel->readMessage(coreID);
-
                         switch(ac.command) {
                             case ARIEL_PERFORM_READ:
-                                    createReadEvent(ac.inst.addr, ac.inst.size);
+                                    createReadEvent(ac.inst.addr, ac.inst.size, ac.instPtr);
                                     break;
 
                             case ARIEL_PERFORM_WRITE:
-                                    createWriteEvent(ac.inst.addr, ac.inst.size, &ac.inst.payload[0]);
+                                    createWriteEvent(ac.inst.addr, ac.inst.size, &ac.inst.payload[0], ac.instPtr);
                                     break;
 
                             case ARIEL_END_INSTRUCTION:
@@ -1046,7 +1047,7 @@ void ArielCore::handleReadRequest(ArielReadEvent* rEv) {
         ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Core %" PRIu32 " issuing read, VAddr=%" PRIu64 ", Size=%" PRIu64 ", PhysAddr=%" PRIu64 "\n",
                             coreID, readAddress, readLength, physAddr));
 
-        commitReadEvent(physAddr, readAddress, (uint32_t) readLength);
+        commitReadEvent(physAddr, readAddress, (uint32_t) readLength, rEv->getIPtr());
     } else {
         ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Core %" PRIu32 " generating a split read request: Addr=%" PRIu64 " Length=%" PRIu64 "\n",
                             coreID, readAddress, readLength));
@@ -1081,8 +1082,8 @@ void ArielCore::handleReadRequest(ArielReadEvent* rEv) {
                 }*/
         }
 
-        commitReadEvent(physLeftAddr, leftAddr, (uint32_t) leftSize);
-        commitReadEvent(physRightAddr, rightAddr, (uint32_t) rightSize);
+        commitReadEvent(physLeftAddr, leftAddr, (uint32_t) leftSize, rEv->getIPtr());
+        commitReadEvent(physRightAddr, rightAddr, (uint32_t) rightSize, rEv->getIPtr());
 
         statSplitReadRequests->addData(1);
     }
@@ -1126,9 +1127,9 @@ void ArielCore::handleWriteRequest(ArielWriteEvent* wEv) {
 
         if( writePayloads ) {
             uint8_t* payloadPtr = wEv->getPayload();
-            commitWriteEvent(physAddr, writeAddress, (uint32_t) writeLength, payloadPtr);
+            commitWriteEvent(physAddr, writeAddress, (uint32_t) writeLength, payloadPtr, wEv->getIPtr());
         } else {
-            commitWriteEvent(physAddr, writeAddress, (uint32_t) writeLength, NULL);
+            commitWriteEvent(physAddr, writeAddress, (uint32_t) writeLength, NULL, wEv->getIPtr());
         }
     } else {
         ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Core %" PRIu32 " generating a split write request: Addr=%" PRIu64 " Length=%" PRIu64 "\n",
@@ -1166,11 +1167,11 @@ void ArielCore::handleWriteRequest(ArielWriteEvent* wEv) {
 
         if( writePayloads ) {
             uint8_t* payloadPtr = wEv->getPayload();
-            commitWriteEvent(physLeftAddr, leftAddr, (uint32_t) leftSize, payloadPtr);
-            commitWriteEvent(physRightAddr, rightAddr, (uint32_t) rightSize, &payloadPtr[leftSize]);
+            commitWriteEvent(physLeftAddr, leftAddr, (uint32_t) leftSize, payloadPtr, wEv->getIPtr());
+            commitWriteEvent(physRightAddr, rightAddr, (uint32_t) rightSize, &payloadPtr[leftSize], wEv->getIPtr());
         } else {
-            commitWriteEvent(physLeftAddr, leftAddr, (uint32_t) leftSize, NULL);
-            commitWriteEvent(physRightAddr, rightAddr, (uint32_t) rightSize, NULL);
+            commitWriteEvent(physLeftAddr, leftAddr, (uint32_t) leftSize, NULL, wEv->getIPtr());
+            commitWriteEvent(physRightAddr, rightAddr, (uint32_t) rightSize, NULL, wEv->getIPtr());
         }
         statSplitWriteRequests->addData(1);
     }
