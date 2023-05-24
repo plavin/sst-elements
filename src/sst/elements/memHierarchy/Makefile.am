@@ -360,7 +360,8 @@ nobase_sst_HEADERS = \
 	memTypes.h
 
 libmemHierarchy_la_LDFLAGS = -module -avoid-version
-libmemHierarchy_la_LIBADD =
+libmemHierarchy_la_LIBADD = -L/nethome/plavin3/sst/spec-utils/libftpjrg -lftpjrg
+libmemHierarchy_la_SOURCES += /nethome/plavin3/sst/spec-utils/libftpjrg.hpp
 
 if HAVE_RAMULATOR
 libmemHierarchy_la_LDFLAGS += $(RAMULATOR_LDFLAGS)

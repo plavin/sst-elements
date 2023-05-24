@@ -20,6 +20,9 @@
 #include "memEvent.h"
 #include "../ariel/arielcore.h"
 
+#include <boost/circular_buffer.hpp>
+#include "ftpjrg.hpp"
+
 #include <sst/core/params.h>
 #include <sst/core/interfaces/stringEvent.h>
 #include <typeinfo>
@@ -49,6 +52,8 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
         traceFileStream.open(traceFile);
         traceFileStream << "ip phase rwf threadID addr latency_nano\n";
     }
+
+    enableMF = params.find<bool>("enable_multifidelity", false);
 
     numAccesses = 0;
     haveRR = false;
@@ -92,6 +97,10 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
             printf("%d: (%d, %d)\n", x.first, std::get<0>(x.second), std::get<1>(x.second));
         }
         */
+    }
+
+    if (haveRR && enableMF) {
+        output.fatal(CALL_INFO, 1, "Do not use manual RR's and Multifidelity simulation simultaneously!");
     }
 
     /* Setup clock */
@@ -181,8 +190,26 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
     if (event->getCmd() == Command::CustomReq) {
         CustomMemEvent *cme = static_cast<CustomMemEvent*>(ev);
         ArielCore::PhaseData *pd = static_cast<ArielCore::PhaseData*>(cme->getCustomData());
+        lastPhase = currentPhase;
         currentPhase = pd->phase;
         printf("Parrot has recieved a phase message of %d\n", pd->phase);
+
+        if (enableMF) {
+            // Check for phase boundary
+            if (lastPhase != currentPhase) {
+                // Give up on training if the phase ended before we could find a stable region
+                if (lastPhase != -1) {
+                    if (phase_map[lastPhase].state == ps_collect) {
+                        phase_map[lastPhase].state = ps_giveup;
+                    }
+                }
+                // If this is the first time we are seeing the new phase, add it to the map
+                if ((currentPhase != -1) && (phase_map.find(currentPhase)==phase_map.end())) {
+                    Phase p;
+                    phase_map[currentPhase] = p;
+                }
+            }
+        }
     } else {
         // Non phase messages here
         /*
@@ -198,14 +225,20 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
     // Handle non-phase messages
     if (event->getCmd() != Command::CustomReq) {
         //For now, go ahead and send a response
-        if (completeRR[currentPhase]) {
+        if (haveRR && completeRR[currentPhase]) {
             uint32_t rdm_idx = rng->generateNextUInt32();
             rdm_idx = rdm_idx % (rrRegion[currentPhase])->size();
             // factor converts ns to cycles
             SimTime_t delay = (*rrRegion[currentPhase])[rdm_idx]-1; // subtract 1 for 1ns link latency
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
             selfLink->send(delay, event->makeResponse());
+        } else if ((enableMF) && (currentPhase!=-1) && (phase_map[currentPhase].state == ps_stable)) {
+            // If we are doing MF, and in a phase, and the phase is stable, then sample
+            //TODO: sample from phase_map[currentPhase].rr
+            // delay = ?
+            //selfLink->send(delay, event->makeResponse());
         } else {
+            // Regular response
             threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
             requestQueue.push(event);
         }
@@ -283,8 +316,36 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         auto latency = getCurrentSimTimeNano() - start_time;
         statLatency->addData(latency);
 
-        // If we are in a phase, and RR is enabled, add to map
         numAccesses++;
+
+        // Multi-fidelity functionality
+        // We are in the response queue here. If we are in a phase and still collecting data, then collect it
+        if ((enableMF) && (currentPhase != -1) && (phase_map[currentPhase].state == ps_collect)) {
+            Phase& cur = phase_map[currentPhase];
+            cur.history.push_back(latency);
+            if (cur.history.size() > mf_data_needed) {
+                FtPjRG ft;
+                auto [stable_start, stable_size, stable_found] = ft.run(cur.history);
+                if (!stable_found) {
+                    // If the method failed to find a stable region, we can delete
+                    // everything before the final starting position.
+                   cur.history.erase(
+                      cur.history.begin(),
+                      cur.history.begin() + stable_start);
+                } else {
+                    // We found our stable phase. Store into a vector for faster sampling
+                    cur.rr = std::vector<uint64_t>(cur.history.begin()+stable_start,
+                                                 cur.history.begin()+stable_start+stable_size);
+                    cur.state = ps_stable;
+                }
+            }
+            // Once it is long enough, we can try to find a stable region.
+            // If stability checking works, we can move to state ps_stable.
+            // If the phase ends and we are still in ps_collect, then we will move to ps_giveup;
+            // Also, if it takes too long to find a stable region, we will move to ps_giveup.
+        }
+
+        // If we are in a phase, and RR is enabled, add to map
         if (haveRR){
 
             if (numAccesses == std::get<0>(rrMap[currentPhase])) {

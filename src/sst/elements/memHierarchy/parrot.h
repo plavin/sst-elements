@@ -35,6 +35,19 @@ using namespace std;
 
 namespace SST { namespace MemHierarchy {
 
+enum phase_state {
+    ps_collect,
+    ps_stable,
+    ps_giveup
+};
+
+class Phase {
+public:
+    phase_state state = ps_collect; // Collecting data, found a stable region, or GiveUp on this phase
+    std::deque<uint64_t> history; // History of latencies
+    std::vector<uint64_t> rr; // Representative Region
+};
+
 class Parrot : public Component {
 public:
 /* Element Library Info */
@@ -50,6 +63,7 @@ public:
             {"forward",             "(bool) Whether to forward phase messages to the next level", "false"},
             {"debug_addr",          "(comma separated uint) Address(es) to be debugged. Leave empty for all, otherwise specify one or more, comma-separated values. Start and end string with brackets",""},
             {"enable_tracing",       "Whether to generate a trace of accesses", "false"},
+            {"enable_multifidelity", "Whether to use multifidelity functionality", "false"},
             {"trace_file",           "If `trace` is set, the file to write to. ", "[component_name].out"},
             {"rr_temp",              "format: 'filename benchmark' - temporary way to hardcode representative regions", ""} )
 
@@ -112,6 +126,7 @@ private:
     /* Phase forwarding */
     bool forward;
     int currentPhase;
+    int lastPhase;
 
     /* Tracing */
     bool enableTracing;
@@ -128,6 +143,11 @@ private:
     RNG::MersenneRNG* rng;
     int rng_seed = 1206;
     int numAccesses;
+
+    /* True Multi-Fidelity */
+    bool enableMF;
+    std::map<int, Phase> phase_map;
+    uint64_t mf_data_needed = 20'000;
 
 
     /* Statistics */
