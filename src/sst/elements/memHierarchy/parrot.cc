@@ -192,19 +192,24 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
         ArielCore::PhaseData *pd = static_cast<ArielCore::PhaseData*>(cme->getCustomData());
         lastPhase = currentPhase;
         currentPhase = pd->phase;
-        printf("Parrot has recieved a phase message of %d\n", pd->phase);
+        //printf("Parrot has recieved a phase message of %d\n", pd->phase);
 
         if (enableMF) {
             // Check for phase boundary
             if (lastPhase != currentPhase) {
+                if (debugMF) std::cout << "DebugMF: Phanse boundary identified: [ " << lastPhase << " -> " << currentPhase << " ]\n";
                 // Give up on training if the phase ended before we could find a stable region
                 if (lastPhase != -1) {
+                    if (debugMF) std::cout << "DebugMF: Transitioned without reaching stability for phase (" << lastPhase << ")\n";
                     if (phase_map[lastPhase].state == ps_collect) {
                         phase_map[lastPhase].state = ps_giveup;
                     }
                 }
                 // If this is the first time we are seeing the new phase, add it to the map
                 if ((currentPhase != -1) && (phase_map.find(currentPhase)==phase_map.end())) {
+                    if (debugMF) std::cout << "DebugMF: New phase identified (" << currentPhase << ")\n";
+                    //TODO: we just found a new phase so that means the last interval can be added to the latency history of this phase
+                    // (1) need to collect the latencies (2) need to know the interval len, currently only in the PD
                     Phase p;
                     phase_map[currentPhase] = p;
                 }
@@ -327,24 +332,34 @@ bool Parrot::tick(SST::Cycle_t cycle) {
             Phase& cur = phase_map[currentPhase];
             cur.history.push_back(latency);
             if (cur.history.size() > mf_data_needed) {
+                if (debugMF) std::cout << "DebugMF: Running FtPjRG on phase (" << currentPhase << ")\n";
                 FtPjRG ft;
                 auto [stable_start, stable_size, stable_found] = ft.run(cur.history);
                 if (!stable_found) {
-                    // If the method failed to find a stable region, we can delete
-                    // everything before the final starting position.
-                    cur.history.erase(cur.history.begin(), cur.history.begin() + cur.history.size()/2);
-                    /*
-                    std::cout << "FtPjRG return [" << stable_start << ", " << stable_size << "]\n";
-                    std::cout << "Removing first " << stable_start << " elements of cur\n";
-                   cur.history.erase(
-                      cur.history.begin(),
-                      cur.history.begin() + stable_start);
-                    std::cout << "New size is " << cur.history.size() << std::endl;
-                      */
+                    if (stable_start == 0) {
+                        if (debugMF) std::cout << "DebugMF: Stable region not found. GIVE UP. (" << currentPhase << ")\n";
+                        // If we couldn't even advance the window once, we will never find a stable phase
+                        cur.state = ps_giveup;
+                    } else {
+                        if (debugMF) std::cout << "DebugMF: Stable region not found. TRY AGAIN. (" << currentPhase << ")\n";
+                        // If the method failed to find a stable region, we can delete
+                        // everything before the final starting position.
+                        //cur.history.erase(cur.history.begin(), cur.history.begin() + cur.history.size()/2);
+                        if (debugMF) std::cout << " -> FtPjRG return [" << stable_start << ", " << stable_size << "]\n";
+                        if (debugMF) std::cout << " -> Removing first " << stable_start << " elements of cur\n";
+                        cur.history.erase(
+                            cur.history.begin(),
+                            cur.history.begin() + stable_start);
+                        cur.deleted_latencies += stable_start;
+                        if (debugMF) std::cout << " -> New size is " << cur.history.size() << std::endl;
+                    }
                 } else {
                     // We found our stable phase. Store into a vector for faster sampling
+                    if (debugMF) std::cout << "DebugMF: Stable region found. (" << currentPhase << ") (" << cur.deleted_latencies + stable_start << ", " << cur.deleted_latencies+stable_start+stable_size << ")\n";
                     cur.rr = std::vector<uint64_t>(cur.history.begin()+stable_start,
                                                  cur.history.begin()+stable_start+stable_size);
+                    // We are done with the latency history
+                    cur.history.clear();
                     cur.state = ps_stable;
                 }
             }

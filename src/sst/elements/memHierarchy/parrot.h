@@ -43,6 +43,7 @@ enum phase_state {
 
 class Phase {
 public:
+    uint64_t deleted_latencies = 0; // Count how much we deleted so we can remember where we are
     phase_state state = ps_collect; // Collecting data, found a stable region, or GiveUp on this phase
     std::deque<uint64_t> history; // History of latencies
     std::vector<uint64_t> rr; // Representative Region
@@ -146,6 +147,7 @@ private:
 
     /* True Multi-Fidelity */
     bool enableMF;
+    bool debugMF = true;
     std::map<int, Phase> phase_map;
     uint64_t mf_data_needed = 50'000;
 
