@@ -253,6 +253,8 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             // factor converts ns to cycles
             SimTime_t delay = (*rrRegion[currentPhase])[rdm_idx]-1; // subtract 1 for 1ns link latency
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
+
+            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
             selfLink->send(delay, event->makeResponse());
 
         } else if ((enableMF) && (currentPhase!=-1) && (phase_map[currentPhase].state == ps_stable)) {
@@ -262,6 +264,8 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             rdm_idx = rdm_idx % rr.size();
             SimTime_t delay = rr[rdm_idx]-1; // subtract 1 for 1ns link latency
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
+
+            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
             selfLink->send(delay, event->makeResponse());
 
         } else {
