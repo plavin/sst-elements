@@ -234,9 +234,12 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             selfLink->send(delay, event->makeResponse());
         } else if ((enableMF) && (currentPhase!=-1) && (phase_map[currentPhase].state == ps_stable)) {
             // If we are doing MF, and in a phase, and the phase is stable, then sample
-            //TODO: sample from phase_map[currentPhase].rr
-            // delay = ?
-            //selfLink->send(delay, event->makeResponse());
+            std::vector<uint64_t>& rr = phase_map[currentPhase].rr;
+            uint32_t rdm_idx = rng->generateNextUInt32();
+            rdm_idx = rdm_idx % rr.size();
+            SimTime_t delay = rr[rdm_idx]-1; // subtract 1 for 1ns link latency
+            delay = delay < 0 ? 0 : delay; // min is 0 cycles
+            selfLink->send(delay, event->makeResponse());
         } else {
             // Regular response
             threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
@@ -329,9 +332,15 @@ bool Parrot::tick(SST::Cycle_t cycle) {
                 if (!stable_found) {
                     // If the method failed to find a stable region, we can delete
                     // everything before the final starting position.
+                    cur.history.erase(cur.history.begin(), cur.history.begin() + cur.history.size()/2);
+                    /*
+                    std::cout << "FtPjRG return [" << stable_start << ", " << stable_size << "]\n";
+                    std::cout << "Removing first " << stable_start << " elements of cur\n";
                    cur.history.erase(
                       cur.history.begin(),
                       cur.history.begin() + stable_start);
+                    std::cout << "New size is " << cur.history.size() << std::endl;
+                      */
                 } else {
                     // We found our stable phase. Store into a vector for faster sampling
                     cur.rr = std::vector<uint64_t>(cur.history.begin()+stable_start,

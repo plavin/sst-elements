@@ -147,7 +147,7 @@ private:
     /* True Multi-Fidelity */
     bool enableMF;
     std::map<int, Phase> phase_map;
-    uint64_t mf_data_needed = 20'000;
+    uint64_t mf_data_needed = 50'000;
 
 
     /* Statistics */
