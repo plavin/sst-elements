@@ -30,6 +30,7 @@
 
 #include "sst/elements/memHierarchy/memEventBase.h"
 #include "sst/elements/memHierarchy/util.h"
+#include "memEvent.h"
 
 using namespace std;
 
@@ -44,6 +45,8 @@ enum phase_state {
 class Phase {
 public:
     uint64_t deleted_latencies = 0; // Count how much we deleted so we can remember where we are
+    uint64_t stable_start = 0;
+    uint64_t stable_size = 0;
     phase_state state = ps_collect; // Collecting data, found a stable region, or GiveUp on this phase
     std::deque<uint64_t> history; // History of latencies
     std::vector<uint64_t> rr; // Representative Region
@@ -65,7 +68,7 @@ public:
             {"debug_addr",          "(comma separated uint) Address(es) to be debugged. Leave empty for all, otherwise specify one or more, comma-separated values. Start and end string with brackets",""},
             {"enable_tracing",       "Whether to generate a trace of accesses", "false"},
             {"enable_multifidelity", "Whether to use multifidelity functionality", "false"},
-            {"trace_file",           "If `trace` is set, the file to write to. ", "[component_name].out"},
+            {"trace_prefix",         "If `trace` is set, the prefix of the trace files(s). ", "[component_name]"},
             {"rr_temp",              "format: 'filename benchmark' - temporary way to hardcode representative regions", ""} )
 
     SST_ELI_DOCUMENT_PORTS(
@@ -98,6 +101,7 @@ public:
     bool tick(SST::Cycle_t cycle);
 
 private:
+
     /** Output and debug */
     Output debug;
     Output output;
@@ -150,7 +154,8 @@ private:
     bool debugMF = true;
     std::map<int, Phase> phase_map;
     uint64_t mf_data_needed = 50'000;
-
+    std::string stableRegionFile;
+    std::ofstream stableRegionFileStream;
 
     /* Statistics */
     Statistic<Addr>* statAddr;

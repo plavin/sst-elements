@@ -1,4 +1,4 @@
-// Copyright 2013-2022 NTESS. Under the terms
+// Copyright 2013-2022 NTESS. Under the terlms
 // of Contract DE-NA0003525 with NTESS, the U.S.
 // Government retains certain rights in this software.
 //
@@ -31,7 +31,6 @@ using namespace SST;
 using namespace SST::MemHierarchy;
 using namespace std;
 
-
 Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     /* Setup output and debug streams */
     output.init("", 1, 0, Output::STDOUT);
@@ -48,12 +47,18 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
 
     enableTracing = params.find<bool>("enable_tracing", false);
     if(enableTracing) {
-        traceFile = params.find<std::string>("trace_file", getName() + ".out");
+        traceFile = params.find<std::string>("trace_prefix", getName()) + ".latency_trace.out";
         traceFileStream.open(traceFile);
         traceFileStream << "ip phase rwf threadID addr latency_nano\n";
     }
 
     enableMF = params.find<bool>("enable_multifidelity", false);
+
+    if (enableMF && enableTracing) {
+        stableRegionFile = params.find<std::string>("trace_prefix", getName()) + ".stable_region.out";
+        stableRegionFileStream.open(stableRegionFile);
+        stableRegionFileStream << "phase stable_start stable_size\n";
+    }
 
     numAccesses = 0;
     haveRR = false;
@@ -171,6 +176,18 @@ Parrot::~Parrot() {
     if(enableTracing) {
         traceFileStream.close();
     }
+
+    if(enableMF && enableTracing) {
+        for (const auto& [phase_id, phase_obj]: phase_map) {
+            if (phase_obj.state == ps_stable) {
+                stableRegionFileStream << phase_id << " " << phase_obj.stable_start << " " <<phase_obj.stable_size << '\n';
+            } else {
+                stableRegionFileStream << phase_id << " 0 0\n";
+            }
+        }
+        stableRegionFileStream.close();
+    }
+
     while (requestQueue.size()) {
         delete requestQueue.front();
         requestQueue.pop();
@@ -182,7 +199,7 @@ Parrot::~Parrot() {
 }
 
 void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
-    MemEventBase *event = static_cast<MemEventBase*>(ev);
+    MemEvent *event = static_cast<MemEvent*>(ev);
     if (!clockOn) enableClock();
     //TODO: Optimize - give each link pair its own map
 
@@ -237,6 +254,7 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             SimTime_t delay = (*rrRegion[currentPhase])[rdm_idx]-1; // subtract 1 for 1ns link latency
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
             selfLink->send(delay, event->makeResponse());
+
         } else if ((enableMF) && (currentPhase!=-1) && (phase_map[currentPhase].state == ps_stable)) {
             // If we are doing MF, and in a phase, and the phase is stable, then sample
             std::vector<uint64_t>& rr = phase_map[currentPhase].rr;
@@ -245,6 +263,7 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             SimTime_t delay = rr[rdm_idx]-1; // subtract 1 for 1ns link latency
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
             selfLink->send(delay, event->makeResponse());
+
         } else {
             // Regular response
             threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
@@ -315,6 +334,10 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         MemEventBase * event = responseQueue.front();
         responseQueue.pop();
 
+        if (threadRequestMap.find(event->getResponseToID()) == threadRequestMap.end()) {
+            printf("Hmm, couldn't find that event");
+        }
+
         std::pair<unsigned int, SimTime_t> req_data = threadRequestMap.find(event->getResponseToID())->second;
         unsigned int linkid = req_data.first;
         SimTime_t start_time = req_data.second;
@@ -361,6 +384,8 @@ bool Parrot::tick(SST::Cycle_t cycle) {
                     // We are done with the latency history
                     cur.history.clear();
                     cur.state = ps_stable;
+                    cur.stable_start = stable_start;
+                    cur.stable_size = stable_size;
                 }
             }
             // Once it is long enough, we can try to find a stable region.
