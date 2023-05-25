@@ -217,8 +217,8 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
                 if (debugMF) std::cout << "DebugMF: Phanse boundary identified: [ " << lastPhase << " -> " << currentPhase << " ]\n";
                 // Give up on training if the phase ended before we could find a stable region
                 if (lastPhase != -1) {
-                    if (debugMF) std::cout << "DebugMF: Transitioned without reaching stability for phase (" << lastPhase << ")\n";
                     if (phase_map[lastPhase].state == ps_collect) {
+                        if (debugMF) std::cout << "DebugMF: Transitioned without reaching stability for phase (" << lastPhase << ")\n";
                         phase_map[lastPhase].state = ps_giveup;
                     }
                 }

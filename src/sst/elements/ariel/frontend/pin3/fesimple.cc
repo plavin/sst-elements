@@ -698,7 +698,7 @@ uint64_t mapped_ariel_cycles()
 void mapped_ariel_phase(int phase)
 {
 
-    printf("ARIEL: Frontend detected phase change: %d\n", phase);
+    //printf("ARIEL: Frontend detected phase change: %d\n", phase);
     THREADID currentThread = PIN_ThreadId();
     UINT32 thr = (UINT32) currentThread;
 

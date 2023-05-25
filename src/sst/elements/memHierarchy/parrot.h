@@ -151,7 +151,7 @@ private:
 
     /* True Multi-Fidelity */
     bool enableMF;
-    bool debugMF = true;
+    bool debugMF = false;
     std::map<int, Phase> phase_map;
     uint64_t mf_data_needed = 50'000;
     std::string stableRegionFile;
