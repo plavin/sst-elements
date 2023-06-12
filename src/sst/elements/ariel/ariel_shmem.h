@@ -331,6 +331,10 @@ public:
 
                 }
 
+            } else if (ac->command == ARIEL_PHASE_CHANGE_NEW) {
+                // if no pd is enabled, we need to make sure these messages don't make it to the core,
+                // as they won't be handled by the memory system
+                ac->command = ARIEL_NOOP;
             }
         }
 

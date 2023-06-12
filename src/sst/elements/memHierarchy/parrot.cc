@@ -251,7 +251,7 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             uint32_t rdm_idx = rng->generateNextUInt32();
             rdm_idx = rdm_idx % (rrRegion[currentPhase])->size();
             // factor converts ns to cycles
-            SimTime_t delay = (*rrRegion[currentPhase])[rdm_idx]-1; // subtract 1 for 1ns link latency
+            SimTime_t delay = (*rrRegion[currentPhase])[rdm_idx]; // self links have 0 latency
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
 
             threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
@@ -262,7 +262,7 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             std::vector<uint64_t>& rr = phase_map[currentPhase].rr;
             uint32_t rdm_idx = rng->generateNextUInt32();
             rdm_idx = rdm_idx % rr.size();
-            SimTime_t delay = rr[rdm_idx]-1; // subtract 1 for 1ns link latency
+            SimTime_t delay = rr[rdm_idx]; // selfLinks have 0 latency - no need to adjust this value
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
 
             threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
@@ -360,31 +360,43 @@ bool Parrot::tick(SST::Cycle_t cycle) {
             cur.history.push_back(latency);
             if (cur.history.size() > mf_data_needed) {
                 if (debugMF) std::cout << "DebugMF: Running FtPjRG on phase (" << currentPhase << ")\n";
-                FtPjRG ft;
+                //FtPjRG ft;
+                //FtPjRG ft(10, 500, 5, 2.0, 4);
+                FtPjRG ft(50, 1000, 5, 1.0, 4);
                 auto [stable_start, stable_size, stable_found] = ft.run(cur.history);
                 if (!stable_found) {
+                    //TODO: UNCOMMENT THIS
+                    /*
                     if (stable_start == 0) {
+                        */
+                    if (false) {
                         if (debugMF) std::cout << "DebugMF: Stable region not found. GIVE UP. (" << currentPhase << ")\n";
                         // If we couldn't even advance the window once, we will never find a stable phase
                         cur.state = ps_giveup;
                     } else {
                         if (debugMF) std::cout << "DebugMF: Stable region not found. TRY AGAIN. (" << currentPhase << ")\n";
+                        //TODO: Fix mf_data_needed
+                        mf_data_needed *= 2;
                         // If the method failed to find a stable region, we can delete
                         // everything before the final starting position.
                         //cur.history.erase(cur.history.begin(), cur.history.begin() + cur.history.size()/2);
                         if (debugMF) std::cout << " -> FtPjRG return [" << stable_start << ", " << stable_size << "]\n";
+                        // TODO: UNCOMMENT IF NO CHANGE - PATRICK
+                        /*
                         if (debugMF) std::cout << " -> Removing first " << stable_start << " elements of cur\n";
                         cur.history.erase(
                             cur.history.begin(),
                             cur.history.begin() + stable_start);
                         cur.deleted_latencies += stable_start;
                         if (debugMF) std::cout << " -> New size is " << cur.history.size() << std::endl;
+                        */
                     }
                 } else {
                     // We found our stable phase. Store into a vector for faster sampling
                     if (debugMF) std::cout << "DebugMF: Stable region found. (" << currentPhase << ") (" << cur.deleted_latencies + stable_start << ", " << cur.deleted_latencies+stable_start+stable_size << ")\n";
                     cur.rr = std::vector<uint64_t>(cur.history.begin()+stable_start,
                                                  cur.history.begin()+stable_start+stable_size);
+                    if (debugMF) std::cout << "DebugMF: Mean latency of RR: " << std::accumulate(cur.rr.begin(), cur.rr.end(), 0.0)/cur.rr.size() << std::endl;
                     // We are done with the latency history
                     cur.history.clear();
                     cur.state = ps_stable;
