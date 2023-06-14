@@ -61,7 +61,7 @@ using namespace std;
 
 namespace phase_detector_constants {
     constexpr double threshold = 0.5; //modsim
-    constexpr uint64_t interval_len = 10000; //modsim
+    constexpr uint64_t interval_len = 50000; //modsim
     //constexpr uint signature_len = 1024;
     constexpr uint signature_len = 1024;
     constexpr uint log2_signature_len = 10;

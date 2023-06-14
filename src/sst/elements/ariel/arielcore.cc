@@ -1491,6 +1491,9 @@ bool ArielCore::processNextEvent() {
                 break;
 
         case PHASE_CHANGE:
+                //NOTE: I'm not sure if this should fall though. But this is not used right now.
+                //Phase events are not put on the coreQ, they are sent immediately
+
                 //TODO: add stat to count phase changes
                 ARIEL_CORE_VERBOSE(8, output->verbose(CALL_INFO, 8, 0, "Core %" PRIu32 " next event is PHASE_CHANGE\n", coreID));
 

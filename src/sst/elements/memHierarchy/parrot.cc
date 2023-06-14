@@ -49,7 +49,7 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     if(enableTracing) {
         traceFile = params.find<std::string>("trace_prefix", getName()) + ".latency_trace.out";
         traceFileStream.open(traceFile);
-        traceFileStream << "ip phase rwf threadID addr latency_nano\n";
+        traceFileStream << "ip phase rwf threadID addr latency_nano\n"; // actually 1/2 ns, not 1ns. Oh well.
     }
 
     enableMF = params.find<bool>("enable_multifidelity", false);
@@ -157,17 +157,25 @@ Parrot::Parrot(ComponentId_t id, Params &params) : Component(id) {
     }
 
     /* Self link */
-    selfLink = configureSelfLink("Self", "1 ns", new Event::Handler<Parrot>(this, &Parrot::handleResponse));
+    selfLink = configureSelfLink("Self", new Event::Handler<Parrot>(this, &Parrot::handleResponse));
 
     /* Setup throughput limiting */
     requestsPerCycle = params.find<uint64_t>("requests_per_cycle", 0);
     responsesPerCycle = params.find<uint64_t>("responses_per_cycle", 0);
 
     /* Statistics */
+    /*
     statAddr       = registerStatistic<Addr>("Addr");
     statWriteAddr  = registerStatistic<Addr>("WriteAddr");
     statReadAddr   = registerStatistic<Addr>("ReadAddr");
+    */
     statLatency    = registerStatistic<SimTime_t>("Latency");
+
+    /* Debugging stats */
+    statRequests   = registerStatistic<uint64_t>("num_requests");
+    statResponses  = registerStatistic<uint64_t>("num_responses");
+    statNormalReq  = registerStatistic<uint64_t>("num_normal_requests");
+    statMFReq      = registerStatistic<uint64_t>("num_mf_requests");
 
     currentPhase = -1;
 }
@@ -199,6 +207,9 @@ Parrot::~Parrot() {
 }
 
 void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
+
+    statRequests->addData(1);
+
     MemEvent *event = static_cast<MemEvent*>(ev);
     if (!clockOn) enableClock();
     //TODO: Optimize - give each link pair its own map
@@ -251,26 +262,31 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             uint32_t rdm_idx = rng->generateNextUInt32();
             rdm_idx = rdm_idx % (rrRegion[currentPhase])->size();
             // factor converts ns to cycles
-            SimTime_t delay = (*rrRegion[currentPhase])[rdm_idx]; // self links have 0 latency
+            SimTime_t delay = (*rrRegion[currentPhase])[rdm_idx] - 1; // self links have 0 latency
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
 
-            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
+            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTime())));
             selfLink->send(delay, event->makeResponse());
 
         } else if ((enableMF) && (currentPhase!=-1) && (phase_map[currentPhase].state == ps_stable)) {
+            statMFReq->addData(1);
             // If we are doing MF, and in a phase, and the phase is stable, then sample
             std::vector<uint64_t>& rr = phase_map[currentPhase].rr;
             uint32_t rdm_idx = rng->generateNextUInt32();
             rdm_idx = rdm_idx % rr.size();
-            SimTime_t delay = rr[rdm_idx]; // selfLinks have 0 latency - no need to adjust this value
+            //uint64_t rdm_idx = (phase_map[currentPhase].access_idx++) % rr.size();
+            SimTime_t delay = rr[rdm_idx]-1; // adjust for some reason
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
 
-            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
+            //std::cout << "Inserting into map (mf): " << getCurrentSimTime() << std::endl;
+            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTime())));
             selfLink->send(delay, event->makeResponse());
 
         } else {
+            statNormalReq->addData(1);
             // Regular response
-            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTimeNano())));
+            //std::cout << "Inserting into map (norm): " << getCurrentSimTime() << std::endl;
+            threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTime())));
             requestQueue.push(event);
         }
 
@@ -303,6 +319,7 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
 }
 
 void Parrot::handleResponse(SST::Event * ev) {
+    statResponses->addData(1);
     MemEventBase *event = static_cast<MemEventBase*>(ev);
     if (!clockOn) enableClock();
     responseQueue.push(event);
@@ -346,9 +363,9 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         unsigned int linkid = req_data.first;
         SimTime_t start_time = req_data.second;
         threadRequestMap.erase(event->getResponseToID());
-        upLinks[linkid]->send(event);
+        //upLinks[linkid]->send(event); //moved to end of function
 
-        auto latency = getCurrentSimTimeNano() - start_time;
+        auto latency = getCurrentSimTime() - start_time;
         statLatency->addData(latency);
 
         numAccesses++;
@@ -362,7 +379,7 @@ bool Parrot::tick(SST::Cycle_t cycle) {
                 if (debugMF) std::cout << "DebugMF: Running FtPjRG on phase (" << currentPhase << ")\n";
                 //FtPjRG ft;
                 //FtPjRG ft(10, 500, 5, 2.0, 4);
-                FtPjRG ft(50, 1000, 5, 1.0, 4);
+                FtPjRG ft(25, 1500, 5, 1.0, 8);
                 auto [stable_start, stable_size, stable_found] = ft.run(cur.history);
                 if (!stable_found) {
                     //TODO: UNCOMMENT THIS
@@ -447,6 +464,7 @@ bool Parrot::tick(SST::Cycle_t cycle) {
             }
         }
 
+        upLinks[linkid]->send(event);
         sendcount--;
     }
 

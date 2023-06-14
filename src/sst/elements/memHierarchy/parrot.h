@@ -50,6 +50,7 @@ public:
     phase_state state = ps_collect; // Collecting data, found a stable region, or GiveUp on this phase
     std::deque<uint64_t> history; // History of latencies
     std::vector<uint64_t> rr; // Representative Region
+    uint64_t access_idx = 0; // store index of last access for linear addressing
 };
 
 class Parrot : public Component {
@@ -76,9 +77,15 @@ public:
           {"high_network_%(port)d", "Links to higher level", {"memHierarchy.MemEventBase"} } )
 
     SST_ELI_DOCUMENT_STATISTICS(
+        /*
             {"Addr", "Every read or write address recieved by this parrot", "addresses", 1},
             {"WriteAddr", "Every write address recieved by this parrot", "addresses", 1},
             {"ReadAddr", "Every read address recieved by this parrot", "addresses", 1},
+            */
+            {"num_requests", "Number of requests", "num", 1},
+            {"num_responses", "Number of responses", "num", 1},
+            {"num_normal_requests", "Number of requests in normal mode", "num", 1},
+            {"num_mf_requests", "Number of requests in mf mode", "num", 1},
             {"Latency", "Latencies seen by this parrot", "cycles", 1} )
 
 /* Begin class definition */
@@ -158,10 +165,18 @@ private:
     std::ofstream stableRegionFileStream;
 
     /* Statistics */
+    /*
     Statistic<Addr>* statAddr;
     Statistic<Addr>* statWriteAddr;
     Statistic<Addr>* statReadAddr;
+    */
     Statistic<SimTime_t>* statLatency;
+
+    /* Debug stats */
+    Statistic<uint64_t>* statRequests;
+    Statistic<uint64_t>* statResponses;
+    Statistic<uint64_t>* statNormalReq;
+    Statistic<uint64_t>* statMFReq;
 
     inline void enableClock();
 };
