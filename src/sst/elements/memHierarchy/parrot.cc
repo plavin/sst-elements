@@ -226,11 +226,32 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
             // Check for phase boundary
             if (lastPhase != currentPhase) {
                 if (debugMF) std::cout << "DebugMF: Phanse boundary identified: [ " << lastPhase << " -> " << currentPhase << " ]\n";
-                // Give up on training if the phase ended before we could find a stable region
+                
+
                 if (lastPhase != -1) {
                     if (phase_map[lastPhase].state == ps_collect) {
-                        if (debugMF) std::cout << "DebugMF: Transitioned without reaching stability for phase (" << lastPhase << ")\n";
-                        phase_map[lastPhase].state = ps_giveup;
+                        // A phase change occured. If the last phase was not -1,
+                        // and was in the ps_collect state, we should try one
+                        // more time to find a RR. If we can't find it now, we
+                        // will move to ps_giveup.
+                        Phase& cur = phase_map[lastPhase];
+                        FtPjRG ft(sd_window_start, sd_summarize, sd_proj_dist, sd_proj_delta, sd_p_j);
+                        auto [stable_start, stable_size, stable_found] = ft.run(cur.history);
+                        if (stable_found) {
+                            if (debugMF) std::cout << "DebugMF: Stable region found at phase change. (" << currentPhase << ") (" << cur.deleted_latencies + stable_start << ", " << cur.deleted_latencies+stable_start+stable_size << ")\n";
+                            cur.rr = std::vector<uint64_t>(cur.history.begin()+stable_start,
+                                                 cur.history.begin()+stable_start+stable_size);
+                            if (debugMF) std::cout << "DebugMF: Mean latency of RR: " << std::accumulate(cur.rr.begin(), cur.rr.end(), 0.0)/cur.rr.size() << std::endl;
+                            // We are done with the latency history
+                            cur.history.clear();
+                            cur.state = ps_stable;
+                            cur.stable_start = stable_start;
+                            cur.stable_size = stable_size;
+                            cur.mean =  std::accumulate(cur.rr.begin(), cur.rr.end(), 1.0) / stable_size;
+                        } else {
+                            if (debugMF) std::cout << "DebugMF: Transitioned without reaching stability for phase (" << lastPhase << ")\n";
+                            phase_map[lastPhase].state = ps_giveup;
+                        }
                     }
                 }
                 // If this is the first time we are seeing the new phase, add it to the map
@@ -271,12 +292,21 @@ void Parrot::handleRequest(SST::Event * ev, unsigned int threadid) {
         } else if ((enableMF) && (currentPhase!=-1) && (phase_map[currentPhase].state == ps_stable)) {
             statMFReq->addData(1);
             // If we are doing MF, and in a phase, and the phase is stable, then sample
+            /* Regular Method */ /*
             std::vector<uint64_t>& rr = phase_map[currentPhase].rr;
             uint32_t rdm_idx = rng->generateNextUInt32();
             rdm_idx = rdm_idx % rr.size();
             //uint64_t rdm_idx = (phase_map[currentPhase].access_idx++) % rr.size();
             SimTime_t delay = rr[rdm_idx]-1; // adjust for some reason
             delay = delay < 0 ? 0 : delay; // min is 0 cycles
+            */
+            /* New method */
+            double mean = phase_map[currentPhase].mean;
+            uint64_t base_delay = (uint64_t) mean; // truncate
+            SimTime_t delay = base_delay + (((double)(rng->generateNextUInt32()) / UINT32_MAX) < (mean - base_delay)); // with a probablity of (mean-base_delay), add one. this way we keep the proper mean, even though we can only use discrete delays
+            delay -= 1; // adjust
+
+            //std::cout << "Mean: " << mean << ", Base: " << base_delay << ", Delay " << delay << std::endl;
 
             //std::cout << "Inserting into map (mf): " << getCurrentSimTime() << std::endl;
             threadRequestMap.insert(std::make_pair(event->getID(), std::make_pair(threadid, getCurrentSimTime())));
@@ -375,11 +405,13 @@ bool Parrot::tick(SST::Cycle_t cycle) {
         if ((enableMF) && (currentPhase != -1) && (phase_map[currentPhase].state == ps_collect)) {
             Phase& cur = phase_map[currentPhase];
             cur.history.push_back(latency);
-            if (cur.history.size() > mf_data_needed) {
+            if (cur.history.size() > cur.data_needed) {
                 if (debugMF) std::cout << "DebugMF: Running FtPjRG on phase (" << currentPhase << ")\n";
                 //FtPjRG ft;
                 //FtPjRG ft(10, 500, 5, 2.0, 4);
-                FtPjRG ft(25, 1500, 5, 1.0, 8);
+                //FtPjRG ft(25, 1500, 5, 1.0, 8); // subset config
+                //FtPjRG ft(50, 1500, 10, 2.0, 8); // jun14 config
+                FtPjRG ft(sd_window_start, sd_summarize, sd_proj_dist, sd_proj_delta, sd_p_j);
                 auto [stable_start, stable_size, stable_found] = ft.run(cur.history);
                 if (!stable_found) {
                     //TODO: UNCOMMENT THIS
@@ -393,7 +425,7 @@ bool Parrot::tick(SST::Cycle_t cycle) {
                     } else {
                         if (debugMF) std::cout << "DebugMF: Stable region not found. TRY AGAIN. (" << currentPhase << ")\n";
                         //TODO: Fix mf_data_needed
-                        mf_data_needed *= 2;
+                        cur.data_needed = (uint64_t)(cur.data_needed * 1.5);
                         // If the method failed to find a stable region, we can delete
                         // everything before the final starting position.
                         //cur.history.erase(cur.history.begin(), cur.history.begin() + cur.history.size()/2);
@@ -419,6 +451,7 @@ bool Parrot::tick(SST::Cycle_t cycle) {
                     cur.state = ps_stable;
                     cur.stable_start = stable_start;
                     cur.stable_size = stable_size;
+                    cur.mean =  std::accumulate(cur.rr.begin(), cur.rr.end(), 0.0) / stable_size;
                 }
             }
             // Once it is long enough, we can try to find a stable region.

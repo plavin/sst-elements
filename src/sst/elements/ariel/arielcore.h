@@ -274,6 +274,7 @@ class ArielCore : public ComponentExtension {
 #endif
 
         std::unordered_map<StandardMem::Request::id_t, StandardMem::Request*>* pendingTransactions;
+        std::unordered_map<StandardMem::Request::id_t, uint64_t>* pendingTransStartTime;
         uint32_t maxIssuePerCycle;
         uint32_t maxQLength;
         uint64_t cacheLineSize;
@@ -316,12 +317,14 @@ class ArielCore : public ComponentExtension {
         Statistic<uint64_t>* statFPSPScalarIns;
         Statistic<uint64_t>* statFPSPOps;
 
+        Statistic<uint64_t>* statLatency;
+
         uint32_t pending_transaction_count;
         uint32_t pending_gpu_transaction_count;
 
 };
 
 }
-}
 
+}
 #endif

@@ -51,6 +51,8 @@ public:
     std::deque<uint64_t> history; // History of latencies
     std::vector<uint64_t> rr; // Representative Region
     uint64_t access_idx = 0; // store index of last access for linear addressing
+    double mean = 0.0;
+    uint64_t data_needed = 50'000;
 };
 
 class Parrot : public Component {
@@ -160,9 +162,36 @@ private:
     bool enableMF;
     bool debugMF = false;
     std::map<int, Phase> phase_map;
-    uint64_t mf_data_needed = 50'000;
     std::string stableRegionFile;
     std::ofstream stableRegionFileStream;
+
+    /* FtPjRG Parameters*/
+    // Jun28 optimizer config
+    // MAIN PAPER RESULTS SETTINGS
+    /*
+    uint64_t sd_window_start = 75;
+    int sd_summarize = 1500;
+    int sd_proj_dist = 10;
+    float sd_proj_delta = 2.0;
+    int sd_p_j = 10;
+    */
+    
+    // MATMUL CONFIG
+    /*
+    uint64_t sd_window_start = 100;
+    int sd_summarize = 2000;
+    int sd_proj_dist = 20;
+    float sd_proj_delta = 3.0;
+    int sd_p_j = 10;
+    */
+    // Spatter CONFIG
+    //(0.65, 200000, 3, 50, 500, 5, 3, 2)
+    uint64_t sd_window_start = 100;
+    int sd_summarize = 500;
+    int sd_proj_dist = 5;
+    float sd_proj_delta = 3.0;
+    int sd_p_j = 2;
+
 
     /* Statistics */
     /*

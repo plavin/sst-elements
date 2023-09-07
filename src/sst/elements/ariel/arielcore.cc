@@ -61,6 +61,7 @@ ArielCore::ArielCore(ComponentId_t id, ArielTunnel *tunnel,
     writePayloads = params.find<int>("writepayloadtrace") == 0 ? false : true;
     coreQ = new std::queue<ArielEvent*>();
     pendingTransactions = new std::unordered_map<StandardMem::Request::id_t, StandardMem::Request*>();
+    pendingTransStartTime = new std::unordered_map<StandardMem::Request::id_t, uint64_t>();
     pending_transaction_count = 0;
 
 #ifdef HAVE_CUDA
@@ -103,6 +104,8 @@ ArielCore::ArielCore(ComponentId_t id, ArielTunnel *tunnel,
 
     statFPSPOps = registerStatistic<uint64_t>("fp_sp_ops", subID);
     statFPDPOps = registerStatistic<uint64_t>("fp_dp_ops", subID);
+
+    statLatency = registerStatistic<uint64_t>("latency", subID);
 
     free(subID);
 
@@ -187,6 +190,7 @@ void ArielCore::commitReadEvent(const uint64_t address,
 #endif
             pending_transaction_count++;
             pendingTransactions->insert( std::pair<StandardMem::Request::id_t, StandardMem::Request*>(req->getID(), req) );
+            pendingTransStartTime->insert( std::pair<StandardMem::Request::id_t, uint64_t>(req->getID(), getCurrentSimTime()) );
 #ifdef HAVE_CUDA
         }
 #endif
@@ -236,6 +240,7 @@ void ArielCore::commitWriteEvent(const uint64_t address,
 #endif
             pending_transaction_count++;
             pendingTransactions->insert( std::pair<StandardMem::Request::id_t, StandardMem::Request*>(req->getID(), req) );
+            pendingTransStartTime->insert( std::pair<StandardMem::Request::id_t, uint64_t>(req->getID(), getCurrentSimTime()) );
 #ifdef HAVE_CUDA
         }
 #endif
@@ -260,6 +265,7 @@ void ArielCore::commitFlushEvent(const uint64_t address,
         StandardMem::Request *req = new StandardMem::FlushAddr( address, length, true, std::numeric_limits<uint32_t>::max());
         pending_transaction_count++;
         pendingTransactions->insert( std::pair<StandardMem::Request::id_t, StandardMem::Request*>(req->getID(), req) );
+        pendingTransStartTime->insert( std::pair<StandardMem::Request::id_t, uint64_t>(req->getID(), getCurrentSimTime()) );
 
         cacheLink->send(req);
         statFlushRequests->addData(1);
@@ -490,8 +496,15 @@ void ArielCore::handleEvent(StandardMem::Request* event) {
 #endif
         ARIEL_CORE_VERBOSE(4, output->verbose(CALL_INFO, 4, 0, "Correctly identified event in pending transactions, removing from list, before there are: %" PRIu32 " transactions pending.\n",
                             (uint32_t) pendingTransactions->size()));
+        auto start_time = pendingTransStartTime->find(mev_id);
+        if (start_time == pendingTransStartTime->end()) {
+            output->fatal(CALL_INFO, -4, "Memory event response to core: %" PRIu32 " was not found in pendingTransStartTime.\n", coreID);
+        }
+        statLatency->addData(getCurrentSimTime() - start_time->second);
+        //std::cout << "PATRICK: " << getCurrentSimTime() - start_time->second << std::endl;
 
         pendingTransactions->erase(find_entry);
+        pendingTransStartTime->erase(start_time);
         pending_transaction_count--;
         if(isCoreFenced() && pending_transaction_count == 0)
             unfence();

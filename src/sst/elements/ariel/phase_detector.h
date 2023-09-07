@@ -60,8 +60,9 @@ using namespace std;
 // #define drop_bits 3
 
 namespace phase_detector_constants {
-    constexpr double threshold = 0.5; //modsim
-    constexpr uint64_t interval_len = 50000; //modsim
+    constexpr double threshold = 0.65; //modsim
+    //constexpr uint64_t interval_len = 100'000; //spatter
+    constexpr uint64_t interval_len = 200'000; //spatter
     //constexpr uint signature_len = 1024;
     constexpr uint signature_len = 1024;
     constexpr uint log2_signature_len = 10;
