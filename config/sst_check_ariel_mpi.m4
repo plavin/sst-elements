@@ -8,7 +8,9 @@ AC_DEFUN([SST_CHECK_ARIEL_MPI], [
   AS_IF([test "$enable_ariel_mpi" = "yes"], [sst_check_ariel_mpi_happy="yes"])
 
   dnl Ensure Core was compiled without MPI
-  dnl TODO: Remove this requirement in a future release
+  dnl Regrettably, this runs before we have checked whether sst-config exists,
+  dnl as that config file overwrites the MPICXX and MPICC variables needed by
+  dnl the ACX_MPI macro. We plan to remove this check altogether in the future.
   AC_MSG_CHECKING([whether sst-core was compilied without MPI])
   sst_config_out=$(sst-config --MPI_CPPFLAGS)
   if test -z "$sst_config_out"; then
