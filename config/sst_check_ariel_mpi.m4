@@ -11,15 +11,17 @@ AC_DEFUN([SST_CHECK_ARIEL_MPI], [
   dnl Regrettably, this runs before we have checked whether sst-config exists,
   dnl as that config file overwrites the MPICXX and MPICC variables needed by
   dnl the ACX_MPI macro. We plan to remove this check altogether in the future.
-  AC_MSG_CHECKING([whether sst-core was compilied without MPI])
-  sst_config_out=$(sst-config --MPI_CPPFLAGS)
-  if test -z "$sst_config_out"; then
-    AC_MSG_RESULT([yes])
-  else
-    AC_MSG_RESULT([no])
-    AC_MSG_WARN([SST-Core appears to have been compiled with MPI support. Disabling Ariel MPI support.])
-    sst_check_ariel_mpi_happy="no"
-  fi
+  AS_IF([test "$sst_check_ariel_mpi_happy" = "yes"], [
+    AC_MSG_CHECKING([whether sst-core was compilied without MPI])
+    sst_config_out=$(sst-config --MPI_CPPFLAGS)
+    if test -z "$sst_config_out"; then
+      AC_MSG_RESULT([yes])
+    else
+      AC_MSG_RESULT([no])
+      AC_MSG_WARN([SST-Core appears to have been compiled with MPI support. Disabling Ariel MPI support.])
+      sst_check_ariel_mpi_happy="no"
+    fi
+    ])
 
   dnl Find the MPI compilers and put them in MPICC and MIPCXX
   AS_IF([test "$sst_check_ariel_mpi_happy" = "yes"], [
