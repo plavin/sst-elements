@@ -17,8 +17,6 @@ dnl SST_CHECK_ARIEL_MPI([], [AC_MSG_ERROR([Can't enable Ariel MPI])])
 
   AC_SUBST([ARIEL_MPICC])
   AC_SUBST([ARIEL_MPICXX])
-  AC_SUBST([ARIEL_CFLAGS])
-  AC_SUBST([ARIEL_CXXFLAGS])
 
   AC_CONFIG_FILES([src/sst/elements/ariel/api/Makefile])
   AC_CONFIG_FILES([src/sst/elements/ariel/mpi/Makefile])

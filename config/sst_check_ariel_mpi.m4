@@ -7,6 +7,18 @@ AC_DEFUN([SST_CHECK_ARIEL_MPI], [
 
   AS_IF([test "$enable_ariel_mpi" = "yes"], [sst_check_ariel_mpi_happy="yes"])
 
+  dnl Ensure Core was compiled without MPI
+  dnl TODO: Remove this requirement in a future release
+  AC_MSG_CHECKING([whether sst-core was compilied without MPI])
+  sst_config_out=$(sst-config --MPI_CPPFLAGS)
+  if test -z "$sst_config_out"; then
+    AC_MSG_RESULT([yes])
+  else
+    AC_MSG_RESULT([no])
+    AC_MSG_WARN([SST-Core appears to have been compiled with MPI support. Disabling Ariel MPI support.])
+    sst_check_ariel_mpi_happy="no"
+  fi
+
   dnl Find the MPI compilers and put them in MPICC and MIPCXX
   AS_IF([test "$sst_check_ariel_mpi_happy" = "yes"], [
     AC_LANG_PUSH([C])
@@ -20,10 +32,8 @@ AC_DEFUN([SST_CHECK_ARIEL_MPI], [
     AC_LANG_POP([C++])
     ])
 
-  dnl Ensure Core was compiled without MPI
-  dnl todo
-  dnl
-
+  dnl Elements will overwrite these with the values used for compiling Core. We
+  dnl will save them in new variables.
   ARIEL_MPICC=$MPICC
   ARIEL_MPICXX=$MPICXX
   AM_CONDITIONAL([SST_USE_ARIEL_MPI], [test "$sst_check_ariel_mpi_happy" = "yes"])
