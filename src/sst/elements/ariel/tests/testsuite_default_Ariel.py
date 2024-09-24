@@ -184,7 +184,7 @@ class testcase_Ariel(SSTTestCase):
         ArielApiDir = "{0}/src/sst/elements/ariel/api".format(ElementsBuildDir)
         current_ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
 
-        OSCommand("make", set_cwd=ArielApiDir)
+        OSCommand("make", set_cwd=ArielApiDir).run()
 
         if current_ld_library_path != "":
             new_ld_library_path = f"{current_ld_library_path}:{ArielApiDir}"
