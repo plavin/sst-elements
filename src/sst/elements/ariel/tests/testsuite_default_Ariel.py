@@ -180,7 +180,8 @@ class testcase_Ariel(SSTTestCase):
         # It is set in the Makefile but we set it here as well
         # to support out-of-source builds
         #ArielApiDir = "{0}/api".format(self.ArielElementDir)
-        ArielApiDir = "{0}/../api".format(test_path)
+        ElementsBuildDir = sstsimulator_conf_get_value_str("SST_ELEMENT_LIBRARY", "SST_ELEMENT_LIBRARY_BUILDDIR")
+        ArielApiDir = "{0}/src/sst/elements/ariel/api".format(ElementsBuildDir)
         current_ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
 
         if current_ld_library_path != "":
