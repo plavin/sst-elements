@@ -185,6 +185,7 @@ class testcase_Ariel(SSTTestCase):
         current_ld_library_path = os.environ.get("LD_LIBRARY_PATH", "")
 
         OSCommand("make", set_cwd=ArielApiDir).run()
+        OSCommand("cp {0}/libarielapi.so {1}/libarielapi.so".format(ArielApiDir,self.ArielElementStreamDir)).run()
 
         if current_ld_library_path != "":
             new_ld_library_path = f"{current_ld_library_path}:{ArielApiDir}"
