@@ -194,13 +194,6 @@ class testcase_Ariel(SSTTestCase):
 
         os.environ["LD_LIBRARY_PATH"] = new_ld_library_path
 
-        log_debug("LD_LIBRARY_PATH is now {0}".format(os.environ["LD_LIBRARY_PATH"]))
-
-        rtnX = OSCommand("ls", set_cwd=ArielApiDir).run()
-        log_debug("Contents of {0} directory:\n{1}".format(ArielApiDir,rtnX.output()))
-
-        log_debug("LD_LIBRARY_PATH is now {0}".format(os.environ["LD_LIBRARY_PATH"]))
-
         # Now build the Ariel stream example
         cmd = "make"
         rtn1 = OSCommand(cmd, set_cwd=self.ArielElementStreamDir).run()
