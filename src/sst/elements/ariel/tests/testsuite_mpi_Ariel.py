@@ -85,7 +85,10 @@ class testcase_Ariel(SSTTestCase):
 
     # TODO: This is hacky. What is the correct way to get the test script location?
     testsuite_dir = os.path.dirname(__file__)
-    mpilauncher_exists = os.path.isfile(testsuite_dir + '/../mpi/mpilauncher')
+    #mpilauncher_exists = os.path.isfile(testsuite_dir + '/../mpi/mpilauncher')
+    mpilauncher_exists = shutil.which("mpilauncher")
+    #if not mpilauncher_exists:
+    #    mpilauncher_exists = shutil.which("mpilauncher")
     mpi_error_msg = f"Ariel: The mpilauncher executable was not found"
 
     @unittest.skipIf(not mpilauncher_exists, mpi_error_msg)

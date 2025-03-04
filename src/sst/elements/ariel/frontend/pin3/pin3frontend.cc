@@ -126,7 +126,7 @@ Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uin
     // MPI Launcher options
     mpimode = params.find<int>("mpimode", 0);
     if (mpimode) {
-        mpilauncher = params.find<std::string>("mpilauncher",  ARIEL_STRINGIZE(MPILAUNCHER_EXECUTABLE));
+        mpilauncher = params.find<std::string>("mpilauncher", "mpilauncher");
         mpiranks = params.find<int>("mpiranks", 1);
         mpitracerank = params.find<int>("mpitracerank", 0);
     }
@@ -134,7 +134,7 @@ Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uin
     // MPI Launcher error checking
     if (mpimode == 1) {
         if (mpilauncher.compare("") == 0) {
-            output->fatal(CALL_INFO, -1, "mpimode=1 was specified but parameter `mpilauncher` is an empty string");
+            output->fatal(CALL_INFO, -1, "mpimode=1 was specified but parameter `mpilauncher` is an empty string.");
         }
         if (redirect_info.stdin_file.compare("") != 0 || redirect_info.stdout_file.compare("") != 0 || redirect_info.stderr_file.compare("") != 0)  {
             output->fatal(CALL_INFO, -1, "Using an MPI launcher and redirected I/O is not supported.\n");
@@ -149,14 +149,10 @@ Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uin
             output->fatal(CALL_INFO, -1, "The value of `mpitracerank` must be in [0,mpiranks) Got %d.\n", mpitracerank);
         }
 
-    }
-
-    if (mpimode == 1) {
         output->verbose(CALL_INFO, 1, 0, "Ariel-MPI: MPI launcher: %s\n", mpilauncher.c_str());
         output->verbose(CALL_INFO, 1, 0, "Ariel-MPI: MPI ranks: %d\n", mpiranks);
         output->verbose(CALL_INFO, 1, 0, "Ariel-MPI: MPI trace rank: %d\n", mpitracerank);
     }
-
 
     appLauncher = params.find<std::string>("launcher", PINTOOL_EXECUTABLE);
 
@@ -499,20 +495,20 @@ int Pin3Frontend::forkPINChild(const char* app, char** args, std::map<std::strin
 
         if(0 == app_env.size()) {
 #if defined(SST_COMPILE_MACOSX)
-        char *dyldpath = getenv("DYLD_LIBRARY_PATH");
+            char *dyldpath = getenv("DYLD_LIBRARY_PATH");
 
-        if(dyldpath) {
-            setenv("PIN_APP_DYLD_LIBRARY_PATH", dyldpath, 1);
-            setenv("PIN_DYLD_RESTORE_REQUIRED", "t", 1);
-            unsetenv("DYLD_LIBRARY_PATH");
-        }
+            if(dyldpath) {
+                setenv("PIN_APP_DYLD_LIBRARY_PATH", dyldpath, 1);
+                setenv("PIN_DYLD_RESTORE_REQUIRED", "t", 1);
+                unsetenv("DYLD_LIBRARY_PATH");
+            }
 #else
 #if defined(HAVE_SET_PTRACER)
-        prctl(PR_SET_PTRACER, getppid(), 0, 0 ,0);
+            prctl(PR_SET_PTRACER, getppid(), 0, 0 ,0);
 #endif // End of HAVE_SET_PTRACER
 #endif // End SST_COMPILE_MACOSX (else branch)
             int ret_code = execvp(app, args);
-            perror("execve");
+            perror("execvp");
 
             output->verbose(CALL_INFO, 1, 0,
                 "Call to execvp returned: %d\n", ret_code);
@@ -527,7 +523,7 @@ int Pin3Frontend::forkPINChild(const char* app, char** args, std::map<std::strin
             for(auto env_itr = app_env.begin(); env_itr != app_env.end(); env_itr++) {
                 size_t nv_pair_size = sizeof(char) * (2 + env_itr->first.size() + env_itr->second.size());
                 char* execute_env_nv_pair = (char*) malloc(nv_pair_size);
-                
+
                 output->verbose(CALL_INFO, 2, 0, "Env: %s=%s\n",
                         env_itr->first.c_str(), env_itr->second.c_str());
 
@@ -541,9 +537,9 @@ int Pin3Frontend::forkPINChild(const char* app, char** args, std::map<std::strin
             execute_env_cp[app_env.size()] = NULL;
 
             int ret_code = execve(app, args, execute_env_cp);
-            perror("execvep");
+            perror("execve");
 
-            output->verbose(CALL_INFO, 1, 0, "Call to execvpe returned %d\n", ret_code);
+            output->verbose(CALL_INFO, 1, 0, "Call to execve returned %d\n", ret_code);
             output->fatal(CALL_INFO, -1, "Error executing %s under a PIN fork\n", app);
         }
     }
