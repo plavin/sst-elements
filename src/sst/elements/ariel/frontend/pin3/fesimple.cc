@@ -860,6 +860,7 @@ void mapped_ariel_region_begin(char *region_name)
 }
 
 // Must only be called by one thread
+// NOTE: region_name may be null to disable checks or to leave an automatically named region
 void mapped_ariel_region_end(char *region_name)
 {
    return;  // Not yet implemented. Potential implementation below.

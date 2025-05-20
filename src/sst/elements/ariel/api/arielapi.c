@@ -106,8 +106,20 @@ int MPI_Init_thread(int *argc, char ***argv, int required, int *provided) {
 
 void ariel_region_begin(char* region_name) {
     printf("ARIEL: ariel_region_begin called in Ariel API.\n");
+    if (region_name) {
+        printf("ARIEL: Entered region %s\n", region_name);
+    } else {
+        printf("WARNING: Entered region with no name. This will be an error in the future.\n");
+
+    }
 }
 
 void ariel_region_end(char* region_name) {
     printf("ARIEL: ariel_region_end called in Ariel API.\n");
+    // region_name may be null to disable checks
+    if (region_name) {
+        printf("ARIEL: Left region %s\n", region_name);
+    } else {
+        printf("ARIEL: Left region\n", region_name);
+    }
 }
