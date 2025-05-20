@@ -845,6 +845,34 @@ int check_for_api_mpi_init() {
     return 0;
 }
 
+// Must only be called by one thread
+void mapped_ariel_region_begin(char *region_name)
+{
+   return;  // Not yet implemented. Potential implementation below.
+   /*
+    THREADID thr = PIN_ThreadId();
+    ArielCommand ac;
+    ac.command = ARIEL_REGION_BEGIN; // Does not exist yet
+    strncpy(ac.region_name, region_name, ARIEL_REGION_MAX); // Need to send name somehow. Would be nice to do this without blowing up the size of ArielCommand
+    // Maybe it makes sense to break this into three different messages, with the middle one possibly larger? 
+    tunnel->writeMessage(thr, ac);
+    */
+}
+
+// Must only be called by one thread
+void mapped_ariel_region_end(char *region_name)
+{
+   return;  // Not yet implemented. Potential implementation below.
+   /*
+    THREADID thr = PIN_ThreadId();
+    ArielCommand ac;
+    ac.command = ARIEL_REGION_END; // Does not exist yet
+    strncpy(ac.region_name, region_name, ARIEL_REGION_MAX); // Need to send name somehow. Would be nice to do this without blowing up the size of ArielCommand
+    // Maybe it makes sense to break this into three different messages, with the middle one possibly larger? 
+    tunnel->writeMessage(thr, ac);
+    */
+}
+
 int ariel_mlm_memcpy(void* dest, void* source, size_t size) {
 #ifdef ARIEL_DEBUG
     fprintf(stderr, "Perform a mlm_memcpy from Ariel from %p to %p length %llu\n",
@@ -1252,11 +1280,11 @@ VOID InstrumentRoutine(RTN rtn, VOID* args)
         RTN_InsertCall(rtn, IPOINT_AFTER, (AFUNPTR) check_for_api_mpi_init, IARG_END);
         RTN_Close(rtn);
         fprintf(stderr, "Instrumentation complete\n");
+        return;
     } else if (RTN_Name(rtn) == "api_mpi_init" || RTN_Name(rtn) == "_api_mpi_init") {
         fprintf(stderr, "Replacing api_mpi_init with mapped_api_mpi_init.\n");
         RTN_Replace(rtn, (AFUNPTR) mapped_api_mpi_init);
         fprintf(stderr, "Replacement complete\n");
-        return;
         return;
 #if ! defined(__APPLE__)
     } else if (RTN_Name(rtn) == "clock_gettime" || RTN_Name(rtn) == "_clock_gettime" ||
@@ -1360,6 +1388,16 @@ VOID InstrumentRoutine(RTN rtn, VOID* args)
             RTN_Replace(rtn, (AFUNPTR) mapped_ariel_malloc_flag_fortran);
             return;
         }
+    } else if (RTN_Name(rtn) == "ariel_region_begin" || RTN_Name(rtn) == "_ariel_region_begin") {
+        fprintf(stderr, "Identified routine: ariel_region_begin, replacing with Ariel equivalent..\n");
+        RTN_Replace(rtn, (AFUNPTR) mapped_ariel_region_begin);
+        fprintf(stderr, "Replacement complete\n");
+        return;
+    } else if (RTN_Name(rtn) == "ariel_region_end" || RTN_Name(rtn) == "_ariel_region_end") {
+        fprintf(stderr, "Identified routine: ariel_region_end, replacing with Ariel equivalent..\n");
+        RTN_Replace(rtn, (AFUNPTR) mapped_ariel_region_end);
+        fprintf(stderr, "Replacement complete\n");
+        return;
     }
 }
 

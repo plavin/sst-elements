@@ -51,6 +51,18 @@ void ariel_output_stats();
  */
 void ariel_malloc_flag(int64_t id, int count, int level);
 
+/* Signal to the SST Statistics system that we are entering a profiling region.
+ * NOOP for now. Hopefully this functionality will be addedin the future.
+ * `name` will appear in the stats output.
+ */
+void ariel_region_begin(char* region_name);
+
+/* Signal to the SST statistics system that we are leaving a profiling region.
+ * NOOP for now. `name` will be  used for error checking.
+ */
+void ariel_region_end(char* region_name);
+
+
 #if defined(c_plusplus) || defined(__cplusplus)
 }
 #endif

@@ -103,3 +103,11 @@ int MPI_Init_thread(int *argc, char ***argv, int required, int *provided) {
     exit(1);
 #endif
 }
+
+void ariel_region_begin(char* region_name) {
+    printf("ARIEL: ariel_region_begin called in Ariel API.\n");
+}
+
+void ariel_region_end(char* region_name) {
+    printf("ARIEL: ariel_region_end called in Ariel API.\n");
+}
