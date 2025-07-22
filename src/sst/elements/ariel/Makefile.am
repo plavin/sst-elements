@@ -1,7 +1,4 @@
-SUBDIRS = api
-if SST_USE_ARIEL_MPI
-SUBDIRS += mpi
-endif
+SUBDIRS = api mpi
 
 AM_CPPFLAGS += \
 	-I$(top_srcdir)/src

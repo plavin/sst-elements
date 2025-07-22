@@ -13,10 +13,12 @@
 // information, see the LICENSE file in the top level directory of the
 // distribution.
 
-
 #include <sst_config.h>
-
 #include "pin3frontend.h"
+
+#ifdef SST_CONFIG_HAVE_MPI
+//TODO?
+#endif
 
 #include <signal.h>
 #if !defined(SST_COMPILE_MACOSX)
@@ -30,9 +32,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <fcntl.h>
-
 #include <time.h>
-
 #include <string.h>
 
 #define ARIEL_INNER_STRINGIZE(input) #input
@@ -111,7 +111,13 @@ Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uin
     output->verbose(CALL_INFO, 1, 0, "Base pipe name: %s\n", shmem_region_name.c_str());
 
     // MPI Launcher options
-    mpimode = params.find<int>("mpimode", 0);
+    //mpimode = params.find<int>("mpimode", 0);
+#ifdef USE_MPI
+    mpimode = 1;
+#else
+    mpimode = 0;
+#endif
+
     if (mpimode) {
         mpilauncher = params.find<std::string>("mpilauncher",  ARIEL_STRINGIZE(MPILAUNCHER_EXECUTABLE));
         mpiranks = params.find<int>("mpiranks", 1);
@@ -322,10 +328,16 @@ void Pin3Frontend::init(unsigned int phase)
         // Init the child_pid = 0, this prevents problems in emergencyShutdown()
         // if forkPINChild() calls fatal (i.e. the child_pid would not be set)
         child_pid = 0;
-        if (mpimode == 1) {
+        if (mpimode == 0) { // TODO CHANGE BACK
             // Ariel will fork the MPI launcher which will itself fork pin
-            child_pid = forkPINChild(mpilauncher.c_str(), execute_args, execute_env, redirect_info);
+            printf("--------------------\n");
+            printf(" --- MPI     PIN ---\n");
+            printf("--------------------\n");
+            child_pid = forkPINChildMPI(mpilauncher.c_str(), execute_args, execute_env, redirect_info);
         } else {
+            printf("--------------------\n");
+            printf(" --- Regular PIN ---\n");
+            printf("--------------------\n");
             child_pid = forkPINChild(appLauncher.c_str(), execute_args, execute_env, redirect_info);
         }
         output->verbose(CALL_INFO, 1, 0, "Returned from launching PIN.  Waiting for child to attach.\n");
@@ -346,6 +358,59 @@ void Pin3Frontend::finish() {
 
 ArielTunnel* Pin3Frontend::getTunnel() {
     return tunnel;
+}
+
+int Pin3Frontend::forkPINChildMPI(const char* app, char** args, std::map<std::string, std::string>& app_env, redirect_info_t redirect_info) {
+#ifdef USE_MPI
+    if(isSimulationRunModeInit())
+        return 0;
+#endif
+
+    // Convert app to non-const
+
+    char *app2 = (char*)malloc(std::strlen(app) + 1);
+    if (!app2) return 0; // TODO proper error condition
+    std::strcpy(app2, app);
+
+    // Find where the PIN arguments end
+    int app_idx = -1;
+    for (int i = 0; args[i] != NULL; i++) {
+        if (strcmp(args[i], "--") == 0) {
+            app_idx = i+1;
+            break;
+        }
+    }
+    if (app_idx == -1) {
+        // TODO: Error not found
+    }
+
+    for (int i = app_idx; args[i] != NULL; i++) {
+        printf(" app %d - %s\n", i, args[1]);
+    }
+
+    int count = 1;
+    char *array_of_commands[] = {args[0]};
+    char *argv[] = {"20", NULL};
+    char **array_of_argv[] = {args+1};
+    int array_of_maxprocs[] = {1};
+
+    /* Working for 1 rank
+    int count = 1;
+    char *array_of_commands[] = {args[0]};
+    char *argv[] = {"20", NULL};
+    char **array_of_argv[] = {args+1};
+    int array_of_maxprocs[] = {1};
+    */
+
+    int ret = SST::Core::Interprocess::SST_MPI_Comm_spawn_multiple(count,
+            array_of_commands,
+            array_of_argv,
+            array_of_maxprocs);
+
+    //TODO: Check ret and exit is non-zero
+    free(app2);
+
+    return 1;
 }
 
 int Pin3Frontend::forkPINChild(const char* app, char** args, std::map<std::string, std::string>& app_env, redirect_info_t redirect_info) {

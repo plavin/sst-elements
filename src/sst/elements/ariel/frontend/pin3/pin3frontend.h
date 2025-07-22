@@ -27,6 +27,7 @@
 #include <string>
 #include <map>
 
+
 #include "arielfrontend.h"
 #include "ariel_shmem.h"
 
@@ -93,6 +94,7 @@ class Pin3Frontend : public ArielFrontend {
     private:
 
         int forkPINChild(const char* app, char** args, std::map<std::string, std::string>& app_env, redirect_info_t redirect_info);
+        int forkPINChildMPI(const char* app, char** args, std::map<std::string, std::string>& app_env, redirect_info_t redirect_info);
 
         SST::Output* output;
 
@@ -111,6 +113,10 @@ class Pin3Frontend : public ArielFrontend {
         int mpiranks;
         int mpitracerank;
         bool use_mpilauncher;
+
+#ifdef USE_MPI
+        MPI_Comm intercomm;
+#endif
 
 
         char **execute_args;

@@ -67,6 +67,7 @@ class ArielCPU : public SST::Component {
         {"mpilauncher", "Specify a launcher to be used for MPI executables in conjuction with <launcher>", STRINGIZE(MPILAUNCHER_EXECUTABLE)},
         {"mpiranks", "Number of ranks to be launched by <mpilauncher>. Only <mpitracerank> will be traced by <launcher>.", "1" },
         {"mpitracerank", "Rank to be traced by <launcher>.", "0" },
+        {"mpitraceall", "Rank to be traced by <launcher>.", "false" },
         {"envparamcount", "Number of environment parameters to supply to the Ariel executable, default=-1 (use SST environment)", "-1"},
         {"envparamname%(envparamcount)d", "Sets the environment parameter name", ""},
         {"envparamval%(envparamcount)d", "Sets the environment parameter value", ""},

@@ -99,7 +99,7 @@ int MPI_Init_thread(int *argc, char ***argv, int required, int *provided) {
     omp_parallel_region();
     return PMPI_Init_thread(argc, argv, required, provided);
 #else
-    printf("Error: arielapi.c: MPI_Init_thread called in arielapi.c but this file was compiled without MPI. Please recompile the API with `CC=mpicc make`123123.\n");
+    printf("Error: arielapi.c: MPI_Init_thread called in arielapi.c but this file was compiled without MPI. Please recompile the API with `CC=mpicc make`.\n");
     exit(1);
 #endif
 }
