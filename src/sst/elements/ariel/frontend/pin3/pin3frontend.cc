@@ -34,6 +34,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <string.h>
+#include <sstream>
 
 #define ARIEL_INNER_STRINGIZE(input) #input
 #define ARIEL_STRINGIZE(input) ARIEL_INNER_STRINGIZE(input)
@@ -111,24 +112,12 @@ Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uin
     output->verbose(CALL_INFO, 1, 0, "Base pipe name: %s\n", shmem_region_name.c_str());
 
     // MPI Launcher options
-    //mpimode = params.find<int>("mpimode", 0);
-#ifdef USE_MPI
-    mpimode = 1;
-#else
-    mpimode = 0;
-#endif
-
-    //if (mpimode) { //TODO put this back
-        mpilauncher = params.find<std::string>("mpilauncher",  ARIEL_STRINGIZE(MPILAUNCHER_EXECUTABLE));
-        mpiranks = params.find<int>("mpiranks", 1);
-        mpitracerank = params.find<int>("mpitracerank", 0);
-    //}
+    mpimode = params.find<int>("mpimode", 0);
 
     // MPI Launcher error checking
     if (mpimode == 1) {
-        if (mpilauncher.compare("") == 0) {
-            output->fatal(CALL_INFO, -1, "mpimode=1 was specified but parameter `mpilauncher` is an empty string");
-        }
+        mpiranks = params.find<int>("mpiranks", 1);
+        mpitracerank = params.find<int>("mpitracerank", 0);
 
         if (redirect_info.stdin_file.compare("") != 0 || redirect_info.stdout_file.compare("") != 0 || redirect_info.stderr_file.compare("") != 0)  {
             output->fatal(CALL_INFO, -1, "Using an MPI launcher and redirected I/O is not supported.\n");
@@ -142,51 +131,17 @@ Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uin
             output->fatal(CALL_INFO, -1, "The value of `mpitracerank` must be in [0,mpiranks) Got %d.\n", mpitracerank);
         }
 
-    }
-
-    if (mpimode == 1) {
-        output->verbose(CALL_INFO, 1, 0, "Ariel-MPI: MPI launcher: %s\n", mpilauncher.c_str());
         output->verbose(CALL_INFO, 1, 0, "Ariel-MPI: MPI ranks: %d\n", mpiranks);
         output->verbose(CALL_INFO, 1, 0, "Ariel-MPI: MPI trace rank: %d\n", mpitracerank);
     }
-
 
     appLauncher = params.find<std::string>("launcher", PINTOOL_EXECUTABLE);
 
     const uint32_t launch_param_count = (uint32_t) params.find<uint32_t>("launchparamcount", 0);
     const uint32_t pin_arg_count = 37 + launch_param_count;
 
-    uint32_t mpi_args = 0;
-    if (mpimode == 1) {
-        // We need one argument for the launcher, one for the number of ranks,
-        // and one for the rank to trace
-        mpi_args = 3;
-    }
-
-    execute_args = (char**) malloc(sizeof(char*) * (mpi_args + pin_arg_count + app_argc));
+    execute_args = (char**) malloc(sizeof(char*) * (pin_arg_count + app_argc));
     uint32_t arg = 0; // Track current arg
-
-    if (mpimode == 1) {
-        // Prepend mpilauncher to execute_args
-        output->verbose(CALL_INFO, 1, 0, "Processing mpilauncher arguments...\n");
-        std::string mpiranks_str = std::to_string(mpiranks);
-        std::string mpitracerank_str = std::to_string(mpitracerank);
-
-        size_t mpilauncher_size = sizeof(char) * (mpilauncher.size() + 2);
-        execute_args[arg] = (char*) malloc(mpilauncher_size);
-        snprintf(execute_args[arg], mpilauncher_size, "%s", mpilauncher.c_str());
-        arg++;
-
-        size_t mpiranks_str_size = sizeof(char) * (mpiranks_str.size() + 2);
-        execute_args[arg] = (char*) malloc(mpiranks_str_size);
-        snprintf(execute_args[arg], mpiranks_str_size, "%s", mpiranks_str.c_str());
-        arg++;
-
-        size_t mpitracerank_str_size = sizeof(char) * (mpitracerank_str.size() + 2);
-        execute_args[arg] = (char*) malloc(mpitracerank_str_size);
-        snprintf(execute_args[arg], mpitracerank_str_size, "%s", mpitracerank_str.c_str());
-        arg++;
-    }
 
     const uint32_t profileFunctions = (uint32_t) params.find<uint32_t>("profilefunctions", 0);
 
@@ -196,13 +151,6 @@ Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uin
     execute_args[arg] = (char*) malloc(execute_args_size);
     snprintf(execute_args[arg], execute_args_size, "%s", appLauncher.c_str());
     arg++;
-
-
-
-#if 0
-    execute_args[arg++] = const_cast<char*>("-pause_tool");
-    execute_args[arg++] = const_cast<char*>("15");
-#endif
 
     execute_args[arg++] = const_cast<char*>("-follow_execv");
 
@@ -328,8 +276,7 @@ void Pin3Frontend::init(unsigned int phase)
         // Init the child_pid = 0, this prevents problems in emergencyShutdown()
         // if forkPINChild() calls fatal (i.e. the child_pid would not be set)
         child_pid = 0;
-        if (mpimode == 0) { // TODO CHANGE BACK
-            // Ariel will fork the MPI launcher which will itself fork pin
+        if (mpimode == 1) {
             printf("--------------------\n");
             printf(" --- MPI     PIN ---\n");
             printf("--------------------\n");
@@ -366,57 +313,22 @@ int Pin3Frontend::forkPINChildMPI(const char* app, char** args, std::map<std::st
         return 0;
 #endif
 
-    // Convert app to non-const
-
-    char *app2 = (char*)malloc(std::strlen(app) + 1);
-    if (!app2) return 0; // TODO proper error condition
-    std::strcpy(app2, app);
-
-    // Find where the PIN arguments end
-    int app_idx = -1;
-    for (int i = 0; args[i] != NULL; i++) {
-        if (strcmp(args[i], "--") == 0) {
-            app_idx = i+1;
-            break;
-        }
-    }
-    if (app_idx == -1) {
-        // TODO: Error not found
+    // NOTE: Env var stuff is not yet implemented in the core
+ 	std::ostringstream envstring;
+    for (const auto& entry : app_env) {
+        envstring << entry.first << "=" << entry.second << "\n";
     }
 
-    for (int i = app_idx; args[i] != NULL; i++) {
-        printf(" apparg %d - %s\n", i, args[i]);
-    }
-
-    int count = 2;
-    char *array_of_commands[] = {args[0], args[app_idx]};
-    char **array_of_argv[] = {args+1, args+app_idx+1};
-    int array_of_maxprocs[] = {1,1};
-
-    /* Working for 1 rank
-    int count = 1;
-    char *array_of_commands[] = {args[0]};
-    char *argv[] = {"20", NULL};
-    char **array_of_argv[] = {args+1};
-    int array_of_maxprocs[] = {1};
-    */
-
-    /*
-    int ret = SST::Core::Interprocess::SST_MPI_Comm_spawn_multiple(count,
-            array_of_commands,
-            array_of_argv,
-            array_of_maxprocs,
-            tracerank);
-            */
-    printf("[SST ELEMENTS] ranks: %d, tracerank: %d\n", mpiranks, mpitracerank);
     int ret = SST::Core::Interprocess::SST_MPI_Comm_spawn_multiple(
             args,
             mpiranks,
-            mpitracerank
+            mpitracerank,
+            envstring.str().c_str()
             );
 
-    //TODO: Check ret and exit is non-zero
-    free(app2);
+    if (ret) {
+        output->fatal(CALL_INFO, 1, 0, "Non-zero return from SST_MPI_Comm_spawn_multiple\n");
+    }
 
     return 1;
 }

@@ -7,7 +7,7 @@ from pathlib import Path
 mpi_mode = True
 ncores= 1
 mpiranks = 1
-tracerank = 1
+tracerank = 0
 size = 1024
 #size = 2048000
 
