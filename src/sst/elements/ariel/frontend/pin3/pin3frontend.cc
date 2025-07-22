@@ -118,11 +118,11 @@ Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uin
     mpimode = 0;
 #endif
 
-    if (mpimode) {
+    //if (mpimode) { //TODO put this back
         mpilauncher = params.find<std::string>("mpilauncher",  ARIEL_STRINGIZE(MPILAUNCHER_EXECUTABLE));
         mpiranks = params.find<int>("mpiranks", 1);
         mpitracerank = params.find<int>("mpitracerank", 0);
-    }
+    //}
 
     // MPI Launcher error checking
     if (mpimode == 1) {
@@ -385,14 +385,13 @@ int Pin3Frontend::forkPINChildMPI(const char* app, char** args, std::map<std::st
     }
 
     for (int i = app_idx; args[i] != NULL; i++) {
-        printf(" app %d - %s\n", i, args[1]);
+        printf(" apparg %d - %s\n", i, args[i]);
     }
 
-    int count = 1;
-    char *array_of_commands[] = {args[0]};
-    char *argv[] = {"20", NULL};
-    char **array_of_argv[] = {args+1};
-    int array_of_maxprocs[] = {1};
+    int count = 2;
+    char *array_of_commands[] = {args[0], args[app_idx]};
+    char **array_of_argv[] = {args+1, args+app_idx+1};
+    int array_of_maxprocs[] = {1,1};
 
     /* Working for 1 rank
     int count = 1;
@@ -402,10 +401,19 @@ int Pin3Frontend::forkPINChildMPI(const char* app, char** args, std::map<std::st
     int array_of_maxprocs[] = {1};
     */
 
+    /*
     int ret = SST::Core::Interprocess::SST_MPI_Comm_spawn_multiple(count,
             array_of_commands,
             array_of_argv,
-            array_of_maxprocs);
+            array_of_maxprocs,
+            tracerank);
+            */
+    printf("[SST ELEMENTS] ranks: %d, tracerank: %d\n", mpiranks, mpitracerank);
+    int ret = SST::Core::Interprocess::SST_MPI_Comm_spawn_multiple(
+            args,
+            mpiranks,
+            mpitracerank
+            );
 
     //TODO: Check ret and exit is non-zero
     free(app2);
