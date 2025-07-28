@@ -17,9 +17,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <inttypes.h>
+/*
 #ifdef ENABLE_ARIEL_MPI
 #include <mpi.h>
 #endif
+*/
 
 /* These definitions are replaced during simulation */
 
@@ -36,6 +38,7 @@ void ariel_fence() {
 }
 
 uint64_t ariel_cycles() {
+    printf("ARIEL: ariel_cycles called in Ariel API.\n");
     return 0;
 }
 
@@ -47,6 +50,7 @@ void ariel_malloc_flag(int64_t id, int count, int level) {
     printf("ARIEL: flagging next %d mallocs at id %" PRId64 "\n", count, id);
 }
 
+/*
 // To ensure that the Pintool (fesimple.cc) numbers our application's OpenMP threads
 // from 0..N-1, we need to run an OpenMP parallel region before calling MPI Init.
 // Otherwise, some MPI threads which aren't used for our application will be
@@ -103,3 +107,4 @@ int MPI_Init_thread(int *argc, char ***argv, int required, int *provided) {
     exit(1);
 #endif
 }
+*/
