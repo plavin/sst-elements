@@ -218,9 +218,9 @@ bool is_mpi_thread(CONTEXT* ctxt) {
 // be an issue
 std::unordered_map<THREADID, THREADID> remap_id;
 
-std::atomic<UINT32> next_app_thread{0};
-std::atomic<UINT32> next_mpi_thread{0};
-std::atomic<UINT32> num_threads{0};
+UINT32 next_app_thread;
+UINT32 next_mpi_thread;
+UINT32 num_threads;
 
 // Initialize data used for remapping thread IDs
 VOID init_remapping_data(UINT32 core_count) {
@@ -236,19 +236,19 @@ VOID SyscallEntry(THREADID tid, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v)
    ADDRINT scNo = PIN_GetSyscallNumber(ctxt, std);
 
    if (scNo == SYS_clone || scNo == __NR_clone) {
-      PIN_GetLock(&mainLock, tid);
 
+      PIN_GetLock(&mainLock, tid);
       // Get the next thread id
-      UINT32 next_thread = num_threads.fetch_add(1);
+      UINT32 next_thread = num_threads++;
 
       bool is_mpi = is_mpi_thread(ctxt);
 
       // App threads will be numbered 0..num_cores-1
       // MPI library threads will be numbered num_cores..
       if (is_mpi) {
-         remap_id[next_thread] = next_mpi_thread.fetch_add(1);
+         remap_id[next_thread] = next_mpi_thread++;
       } else {
-         remap_id[next_thread] = next_app_thread.fetch_add(1);
+         remap_id[next_thread] = next_app_thread++;
       }
       PIN_ReleaseLock(&mainLock);
 

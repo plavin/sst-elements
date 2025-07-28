@@ -16,10 +16,6 @@
 #include <sst_config.h>
 #include "pin3frontend.h"
 
-#ifdef SST_CONFIG_HAVE_MPI
-//TODO?
-#endif
-
 #include <signal.h>
 #if !defined(SST_COMPILE_MACOSX)
 #include <sys/prctl.h>
@@ -277,14 +273,10 @@ void Pin3Frontend::init(unsigned int phase)
         // if forkPINChild() calls fatal (i.e. the child_pid would not be set)
         child_pid = 0;
         if (mpimode == 1) {
-            printf("--------------------\n");
-            printf(" --- MPI     PIN ---\n");
-            printf("--------------------\n");
-            child_pid = forkPINChildMPI(mpilauncher.c_str(), execute_args, execute_env, redirect_info);
+            output->verbose(CALL_INFO, 1, 0, "Launching child with MPI_Comm_spawn_multiple.\n");
+            child_pid = forkPINChildMPI(execute_args, execute_env, redirect_info);
         } else {
-            printf("--------------------\n");
-            printf(" --- Regular PIN ---\n");
-            printf("--------------------\n");
+            output->verbose(CALL_INFO, 1, 0, "Launching child with fork/exec.\n");
             child_pid = forkPINChild(appLauncher.c_str(), execute_args, execute_env, redirect_info);
         }
         output->verbose(CALL_INFO, 1, 0, "Returned from launching PIN.  Waiting for child to attach.\n");
@@ -307,11 +299,7 @@ ArielTunnel* Pin3Frontend::getTunnel() {
     return tunnel;
 }
 
-int Pin3Frontend::forkPINChildMPI(const char* app, char** args, std::map<std::string, std::string>& app_env, redirect_info_t redirect_info) {
-#ifdef USE_MPI
-    if(isSimulationRunModeInit())
-        return 0;
-#endif
+int Pin3Frontend::forkPINChildMPI(char** args, std::map<std::string, std::string>& app_env, redirect_info_t redirect_info) {
 
     // NOTE: Env var stuff is not yet implemented in the core
  	std::ostringstream envstring;

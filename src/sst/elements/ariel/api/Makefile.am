@@ -1,7 +1,3 @@
-AM_CPPFLAGS += \
-	$(MPI_CPPFLAGS) \
-	-I$(top_srcdir)/src
-
 lib_LTLIBRARIES = libarielapi.la
 
 libarielapi_la_SOURCES = \
