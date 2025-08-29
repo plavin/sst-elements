@@ -889,6 +889,28 @@ void mapped_ariel_output_stats()
     tunnel->writeMessage(remap_id[thr], ac);
 }
 
+void mapped_ariel_output_stats_begin_region(const char* name)
+{
+    THREADID thr = PIN_ThreadId();
+    ArielCommand ac;
+    ac.command = ARIEL_OUTPUT_STATS_BEGIN_REGION;
+    ac.instPtr = (uint64_t) 0;
+    strncpy((char*)ac.inst.payload, name, ARIEL_MAX_PAYLOAD_SIZE - 1);
+    ac.inst.payload[ARIEL_MAX_PAYLOAD_SIZE-1]='\0';
+    tunnel->writeMessage(remap_id[thr], ac);
+}
+void mapped_ariel_output_stats_end_region(const char* name)
+
+{
+    THREADID thr = PIN_ThreadId();
+    ArielCommand ac;
+    ac.command = ARIEL_OUTPUT_STATS_END_REGION;
+    ac.instPtr = (uint64_t) 0;
+    strncpy((char*)ac.inst.payload, name, ARIEL_MAX_PAYLOAD_SIZE - 1);
+    ac.inst.payload[ARIEL_MAX_PAYLOAD_SIZE-1]='\0';
+    tunnel->writeMessage(remap_id[thr], ac);
+}
+
 // same effect as mapped_ariel_output_stats(), but it also sends a user-defined reference number back
 void mapped_ariel_output_stats_buoy(uint64_t marker)
 {
@@ -1399,6 +1421,16 @@ VOID InstrumentRoutine(RTN rtn, VOID* args)
     } else if (RTN_Name(rtn) == "ariel_output_stats" || RTN_Name(rtn) == "_ariel_output_stats" || RTN_Name(rtn) == "__arielfort_MOD_ariel_output_stats") {
         fprintf(stderr, "Identified routine: ariel_output_stats, replacing with Ariel equivalent..\n");
         RTN_Replace(rtn, (AFUNPTR) mapped_ariel_output_stats);
+        fprintf(stderr, "Replacement complete\n");
+        return;
+    } else if (RTN_Name(rtn) == "ariel_output_stats_begin_region" || RTN_Name(rtn) == "_ariel_output_stats_begin_region" || RTN_Name(rtn) == "__arielfort_MOD_ariel_output_stats_begin_region") {
+        fprintf(stderr, "Identified routine: ariel_output_stats_begin_region, replacing with Ariel equivalent..\n");
+        RTN_Replace(rtn, (AFUNPTR) mapped_ariel_output_stats_begin_region);
+        fprintf(stderr, "Replacement complete\n");
+        return;
+    } else if (RTN_Name(rtn) == "ariel_output_stats_end_region" || RTN_Name(rtn) == "_ariel_output_stats_end_region" || RTN_Name(rtn) == "__arielfort_MOD_ariel_output_stats_end_region") {
+        fprintf(stderr, "Identified routine: ariel_output_stats_end_region, replacing with Ariel equivalent..\n");
+        RTN_Replace(rtn, (AFUNPTR) mapped_ariel_output_stats_end_region);
         fprintf(stderr, "Replacement complete\n");
         return;
     } else if (RTN_Name(rtn) == "ariel_output_stats_buoy" || RTN_Name(rtn) == "_ariel_output_stats_buoy") {

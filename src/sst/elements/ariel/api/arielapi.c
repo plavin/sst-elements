@@ -41,6 +41,14 @@ void ariel_output_stats() {
     printf("ARIEL: Request to print statistics.\n");
 }
 
+void ariel_output_stats_begin_region(const char *name) {
+    printf("ARIEL: Request to print statistics and begin region:%s\n", name);
+}
+
+void ariel_output_stats_end_region(const char *name) {
+    printf("ARIEL: Request to print statistics and end region:%s\n", name);
+}
+
 void ariel_malloc_flag(int64_t id, int count, int level) {
     printf("ARIEL: flagging next %d mallocs at id %" PRId64 "\n", count, id);
 }
