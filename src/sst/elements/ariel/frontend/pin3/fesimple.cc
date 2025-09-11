@@ -252,13 +252,13 @@ VOID SyscallEntry(THREADID tid, CONTEXT *ctxt, SYSCALL_STANDARD std, VOID *v)
       }
       PIN_ReleaseLock(&mainLock);
 
-#ifdef ARIEL_DEBUG
+//#ifdef ARIEL_DEBUG
       fprintf(stderr, "Caught clone syscall. Launching thread %d (MPI?: %d). Current thread map is:\n", next_thread, is_mpi);
       for (const auto& pair : remap_id) {
 
          std::cout << "[ " << pair.first << " -> " << pair.second << " ]\n";
       }
-#endif
+//#endif
    }
 
 
@@ -517,7 +517,7 @@ VOID WriteInstructionReadWrite(THREADID thr, ADDRINT* readAddr, UINT32 readSize,
 {
 
     if(enable_output) {
-        if(thr < core_count) {
+        if(remap_id[thr] < core_count) {
             WriteStartInstructionMarker( thr, ip, instClass, simdOpWidth);
             WriteInstructionRead(  readAddr,  readSize,  thr, ip, instClass, simdOpWidth );
             WriteInstructionWrite( writeAddr, writeSize, thr, ip, instClass, simdOpWidth );
@@ -531,7 +531,7 @@ VOID WriteInstructionReadOnly(THREADID thr, ADDRINT* readAddr, UINT32 readSize, 
 {
 
     if(enable_output) {
-        if(thr < core_count) {
+        if(remap_id[thr] < core_count) {
             if (first)
                 WriteStartInstructionMarker(thr, ip, instClass, simdOpWidth);
             WriteInstructionRead(  readAddr,  readSize,  thr, ip, instClass, simdOpWidth );
@@ -545,7 +545,7 @@ VOID WriteInstructionReadOnly(THREADID thr, ADDRINT* readAddr, UINT32 readSize, 
 VOID WriteNoOp(THREADID thr, ADDRINT ip)
 {
     if(enable_output) {
-        if(thr < core_count) {
+        if(remap_id[thr] < core_count) {
             ArielCommand ac;
             ac.command = ARIEL_NOOP;
             ac.instPtr = (uint64_t) ip;
@@ -559,7 +559,7 @@ VOID WriteInstructionWriteOnly(THREADID thr, ADDRINT* writeAddr, UINT32 writeSiz
 {
 
     if(enable_output) {
-        if(thr < core_count) {
+        if(remap_id[thr] < core_count) {
             if (first)
                 WriteStartInstructionMarker(thr, ip, instClass, simdOpWidth);
             WriteInstructionWrite(writeAddr, writeSize,  thr, ip, instClass, simdOpWidth);
@@ -957,7 +957,7 @@ int ariel_mlm_memcpy(void* dest, void* source, size_t size) {
     THREADID currentThread = PIN_ThreadId();
     UINT32 thr = (UINT32) currentThread;
 
-    if(thr >= core_count) {
+    if(remap_id[thr] >= core_count) {
         fprintf(stderr, "Thread ID: %" PRIu32 " is greater than core count.\n", thr);
         exit(-4);
     }
@@ -1015,8 +1015,8 @@ void* ariel_mmap_mlm(int fileID, size_t size, int level)
     UINT32 thr = (UINT32) currentThread;
 
 #ifdef ARIEL_DEBUG
-    fprintf(stderr, "%u: Perform a mmap_mlm from Ariel %zu, level %d\n",
-            thr, size, level);
+    fprintf(stderr, "%u: Perform a mmap_mlm from Ariel %zu (remapped to %zu), level %d\n",
+            thr, remap_id[thr], size, level);
 #endif
 
     if(0 == size)
@@ -1031,8 +1031,8 @@ void* ariel_mmap_mlm(int fileID, size_t size, int level)
     size_t real_req_size = 4096 * (npages + ((page_diff == 0) ? 0 : 1));
 
 #ifdef ARIEL_DEBUG
-    fprintf(stderr, "Requested: %llu, but expanded to: %llu (on thread: %lu) \n",
-            size, real_req_size, thr);
+    fprintf(stderr, "Requested: %llu, but expanded to: %llu (on thread: %lu (remapped to %zu)) \n",
+            size, real_req_size, thr, remap_id[thr]);
 #endif
 
     void* real_ptr = 0;
@@ -1055,8 +1055,8 @@ void* ariel_mmap_mlm(int fileID, size_t size, int level)
     tunnel->writeMessage(remap_id[thr], ac);
 
 #ifdef ARIEL_DEBUG
-    fprintf(stderr, "%u: Ariel mmap_mlm call allocates data at address: 0x%llx\n",
-            thr, (uint64_t) real_ptr);
+    fprintf(stderr, "%u (remapped to %zu): Ariel mmap_mlm call allocates data at address: 0x%llx\n",
+            thr, remap_id[thr], (uint64_t) real_ptr);
 #endif
 
     PIN_GetLock(&mainLock, thr);
@@ -1071,7 +1071,7 @@ void* ariel_mlm_malloc(size_t size, int level) {
     UINT32 thr = (UINT32) currentThread;
 
 #ifdef ARIEL_DEBUG
-    fprintf(stderr, "%u: Perform a mlm_malloc from Ariel %zu, level %d\n", thr, size, level);
+    fprintf(stderr, "%u: Perform a mlm_malloc from Ariel %zu (remapped to %zu) , level %d\n", thr, remap_id[thr], size, level);
 #endif
 
     if(0 == size) {
@@ -1085,8 +1085,8 @@ void* ariel_mlm_malloc(size_t size, int level) {
     size_t real_req_size = 4096 * (npages + ((page_diff == 0) ? 0 : 1));
 
 #ifdef ARIEL_DEBUG
-    fprintf(stderr, "Requested: %llu, but expanded to: %llu (on thread: %lu) \n",
-            size, real_req_size, thr);
+    fprintf(stderr, "Requested: %llu, but expanded to: %llu (on thread: %lu (remapped to %zu)) \n",
+            size, real_req_size, thr, remap_id[thr]);
 #endif
 
     void* real_ptr = 0;
@@ -1110,8 +1110,8 @@ void* ariel_mlm_malloc(size_t size, int level) {
     tunnel->writeMessage(remap_id[thr], ac);
 
 #ifdef ARIEL_DEBUG
-    fprintf(stderr, "%u: Ariel mlm_malloc call allocates data at address: 0x%llx\n",
-            thr, (uint64_t) real_ptr);
+    fprintf(stderr, "%zu (remapped_to %zu): Ariel mlm_malloc call allocates data at address: 0x%llx\n",
+            thr, remap_id[thr], (uint64_t) real_ptr);
 #endif
 
     PIN_GetLock(&mainLock, thr);
@@ -1126,7 +1126,7 @@ void ariel_mlm_free(void* ptr)
     UINT32 thr = (UINT32) currentThread;
 
 #ifdef ARIEL_DEBUG
-    fprintf(stderr, "Perform a mlm_free from Ariel (pointer = %p) on thread %lu\n", ptr, thr);
+    fprintf(stderr, "Perform a mlm_free from Ariel (pointer = %p) on thread %zu (remapped to %zu)\n", ptr, thr, remap_id[thr]);
 #endif
 
     bool found = false;

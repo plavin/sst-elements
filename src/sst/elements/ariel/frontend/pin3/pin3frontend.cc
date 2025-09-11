@@ -37,6 +37,96 @@
 
 using namespace SST::ArielComponent;
 
+int LaunchMPIChild(char** pin_command, const int ranks, const int tracerank, const char* env)
+{
+
+    // We have one command for ranks before the traced rank, one
+    // for the ranks after it, and one for the traced rank itself
+    int cmd_count = 1;
+    if ( tracerank > 0 ) {
+        cmd_count++;
+    }
+    if ( tracerank < (ranks - 1) ) {
+        cmd_count++;
+    }
+
+    // Ariel has already formed the entire string to launch PIN + the app.
+    // Find where the PIN arguments end and the app starts. The traced rank will
+    // launch with pin and the other ranks will launch normally.
+    int app_idx = -1;
+    for ( int i = 0; pin_command[i] != NULL; i++ ) {
+        if ( strcmp(pin_command[i], "--") == 0 ) {
+            app_idx = i + 1;
+            break;
+        }
+    }
+
+    if ( app_idx == -1 ) {
+        return 1;
+    }
+
+    int*    array_of_maxprocs = (int*)malloc(sizeof(int) * cmd_count);
+    char**  array_of_commands = (char**)malloc(sizeof(char*) * cmd_count);
+    char*** array_of_argv     = (char***)malloc(sizeof(char**) * cmd_count);
+    const char**  array_of_env      = (const char**)malloc(sizeof(char*) * cmd_count);
+
+    if ( cmd_count == 1 ) {
+        array_of_maxprocs[0] = 1;
+        array_of_commands[0] = pin_command[0];
+        array_of_argv[0]     = pin_command + 1;
+    }
+    else if ( cmd_count == 2 ) {
+        if ( tracerank == 0 ) {
+            array_of_maxprocs[0] = 1;
+            array_of_maxprocs[1] = ranks - 1;
+
+            array_of_commands[0] = pin_command[0];
+            array_of_commands[1] = pin_command[app_idx];
+
+            array_of_argv[0] = pin_command + 1;
+            array_of_argv[1] = pin_command + app_idx + 1;
+        }
+        else {
+            array_of_maxprocs[0] = ranks - 1;
+            array_of_maxprocs[1] = 1;
+
+            array_of_commands[0] = pin_command[app_idx];
+            array_of_commands[1] = pin_command[0];
+
+            array_of_argv[0] = pin_command + app_idx + 1;
+            array_of_argv[1] = pin_command + 1;
+        }
+    }
+    else if ( cmd_count == 3 ) {
+        array_of_maxprocs[0] = tracerank;
+        array_of_maxprocs[1] = 1;
+        array_of_maxprocs[2] = ranks - tracerank - 1;
+
+        array_of_commands[0] = pin_command[app_idx];
+        array_of_commands[1] = pin_command[0];
+        array_of_commands[2] = pin_command[app_idx];
+
+        array_of_argv[0] = pin_command + app_idx + 1;
+        array_of_argv[1] = pin_command + 1;
+        array_of_argv[2] = pin_command + app_idx + 1;
+    }
+
+    for (int i = 0; i < cmd_count; i++) {
+        array_of_env[i] = env;
+    }
+
+    int ret = SST::Core::Interprocess::SST_MPI_Comm_spawn_multiple(cmd_count, array_of_commands,
+                          array_of_argv, array_of_maxprocs, array_of_env);
+
+    free(array_of_maxprocs);
+    free(array_of_commands);
+    free(array_of_argv);
+    free(array_of_env);
+
+    return ret;
+}
+
+
 Pin3Frontend::Pin3Frontend(ComponentId_t id, Params& params, uint32_t cores, uint32_t maxCoreQueueLen, uint32_t defMemPool) :
             ArielFrontend(id, params, cores, maxCoreQueueLen, defMemPool) {
 
@@ -307,7 +397,7 @@ int Pin3Frontend::forkPINChildMPI(char** args, std::map<std::string, std::string
         envstring << entry.first << "=" << entry.second << "\n";
     }
 
-    int ret = SST::Core::Interprocess::SST_MPI_Comm_spawn_multiple(
+    int ret = LaunchMPIChild(
             args,
             mpiranks,
             mpitracerank,
@@ -315,7 +405,7 @@ int Pin3Frontend::forkPINChildMPI(char** args, std::map<std::string, std::string
             );
 
     if (ret) {
-        output->fatal(CALL_INFO, 1, 0, "Non-zero return from SST_MPI_Comm_spawn_multiple\n");
+        output->fatal(CALL_INFO, 1, 0, "Non-zero return from LaunchMPIChild\n");
     }
 
     return 1;
