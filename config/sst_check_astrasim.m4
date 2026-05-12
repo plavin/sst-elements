@@ -16,25 +16,28 @@ AC_DEFUN([SST_CHECK_ASTRASIM], [
     [ASTRASIM_CPPFLAGS="-I$with_astrasim/include -DHAVE_ASTRASIM"
      CPPFLAGS="$ASTRASIM_CPPFLAGS $AM_CPPFLAGS $CPPFLAGS"
      CXXFLAGS="$AM_CXXFLAGS $CXXFLAGS"
-     ASTRASIM_LDFLAGS="-L$with_astrasim/lib64 -Wl,-rpath,$with_astrasim/lib64 -lAstraSim"
+     ASTRASIM_LDFLAGS="-L$with_astrasim/lib64 -Wl,-rpath,$with_astrasim/lib64"
      ASTRASIM_LIBDIR="$with_astrasim/lib64"
+     LIBS="-lAstraSim -lstdc++fs"
      LDFLAGS="$ASTRASIM_LDFLAGS $AM_LDFLAGS $LDFLAGS"],
     [ASTRASIM_CPPFLAGS=
      ASTRASIM_LDFLAGS=
+     ASTRASIM_LIBS=
      ASTRASIM_LIBDIR=])
 
   AC_LANG_PUSH(C++)
-  AC_CHECK_HEADERS([astra-sim/common/Logging.hh],
-                   [], 
-                   [sst_check_astrasim_happy="no"])
+dnl  AC_CHECK_HEADERS([astra-sim/common/Logging.hh],
+dnl                   [], 
+dnl                   [sst_check_astrasim_happy="no"])
 
   AC_LINK_IFELSE(
     [AC_LANG_PROGRAM(
        [[#include <astra-sim/common/Logging.hh>]],
-       [[ //write the program out to avoid issues with mangling
+       [[   //write the program out to avoid issues with mangling
             AstraSim::LoggerFactory::init();
-         ]])],
-    [ASTRASIM_LIB="-lAstraSim"],
+       ]]
+    )],
+    [ASTRASIM_LIBS="$LIBS"],
     [sst_check_astrasim_happy="no"]
   )
   AC_LANG_POP(C++)
@@ -46,7 +49,7 @@ AC_DEFUN([SST_CHECK_ASTRASIM], [
 
   AC_SUBST([ASTRASIM_CPPFLAGS])
   AC_SUBST([ASTRASIM_LDFLAGS])
-  AC_SUBST([ASTRASIM_LIB])
+  AC_SUBST([ASTRASIM_LIBS])
   AC_SUBST([ASTRASIM_LIBDIR])
   AM_CONDITIONAL([HAVE_ASTRASIM], [test "$sst_check_astrasim_happy" = "yes"])
   AS_IF([test "$sst_check_astrasim_happy" = "yes"],
