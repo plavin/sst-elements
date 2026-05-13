@@ -20,8 +20,12 @@
  * TODO: Add explanation
  */
 
+#include <string>
+#include <vector>
 #include <sst/core/component.h>
 #include <sst/core/link.h>
+#include "astra-sim/common/AstraNetworkAPI.hh"
+#include "astra-sim/system/Sys.hh"
 
 namespace SST {
 namespace astra {
@@ -39,7 +43,17 @@ public:
     )
 
 	SST_ELI_DOCUMENT_PARAMS(
-        { "testParam", "test parameter" }
+        {"workloadConfig",        "Workload config file",                  NULL    },
+        {"systemConfig",          "System config file",                    NULL    },
+        {"networkConfig",         "Network config file",                   NULL    },
+        {"memoryConfig",          "Remote memory config file",             NULL    },
+        {"commGroupConfig",       "Communicator group config file",        "empty" },
+        {"logicalTopologyConfig", "Logical topology config file",          NULL    },
+        {"loggingConfig",         "Logging config file",                   "empty" },
+        {"numQueuesPerDim",       "Number of queues per dimension",        "1"     },
+        {"commScale",             "Communication scale",                   "1.0"   },
+        {"injectionScale",        "Injection scale",                       "1.0"   },
+        {"rendezvousProtocol",    "Whether to enable rendezvous protocol", "false" },
     )
 
     SST_ELI_DOCUMENT_PORTS(
@@ -57,6 +71,21 @@ public:
 private:
     SST::Output* out;
 
+    std::string workloadConfig_;
+    std::string systemConfig_;
+    std::string networkConfig_;
+    std::string memoryConfig_;
+    std::string commGroupConfig_;
+    std::string logicalTopologyConfig_;
+    std::string loggingConfig_;
+    int numQueuesPerDim_;
+    double commScale_;
+    double injectionScale_;
+    bool rendezvousProtocol_;
+
+    int numNPUs_;
+    std::vector<int> logicalDims_;
+    std::vector<int> queuesPerDim_;
 
 };
 
