@@ -11,8 +11,12 @@ compdir = $(pkglibdir)
 comp_LTLIBRARIES = libastra.la
 
 libastra_la_SOURCES = \
-	astra.cc \
-	astra.h
+	astraConnector.cc \
+	astraConnector.h \
+	astraNIC.cc \
+	astraNIC.h \
+	astraSimpleNetworkAdapter.cc \
+	astraSimpleNetworkAdapter.h
 
 libastra_la_LDFLAGS = -module -avoid-version @ASTRASIM_LDFLAGS@
 

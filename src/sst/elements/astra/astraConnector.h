@@ -13,8 +13,8 @@
 // information, see the LICENSE file in the top level directory of the
 // distribution.
 
-#ifndef _ASTRA_H
-#define _ASTRA_H
+#ifndef _ASTRA_NODE_H
+#define _ASTRA_NODE_H
 
 /*
  * TODO: Add explanation
@@ -24,19 +24,21 @@
 #include <vector>
 #include <sst/core/component.h>
 #include <sst/core/link.h>
-#include "astra-sim/common/AstraNetworkAPI.hh"
+#include <sst/core/interfaces/simpleNetwork.h>
 #include "astra-sim/system/Sys.hh"
 
-namespace SST {
-namespace astra {
+class AstraSimpleNetworkAdapter;
 
-class astraNetworkBridge : public SST::Component
+namespace SST {
+namespace Astra {
+
+class AstraConnector : public SST::Component
 {
 public:
     SST_ELI_REGISTER_COMPONENT(
-        astraNetworkBridge,
+        AstraConnector,
         "astra",
-        "astraNetworkBridge",
+        "AstraConnector",
         SST_ELI_ELEMENT_VERSION(1,0,0),
         "ASTRA-sim network backend for SST",
         COMPONENT_CATEGORY_NETWORK
@@ -45,10 +47,9 @@ public:
 	SST_ELI_DOCUMENT_PARAMS(
         {"workloadConfig",        "Workload config file",                  NULL    },
         {"systemConfig",          "System config file",                    NULL    },
-        {"networkConfig",         "Network config file",                   NULL    },
         {"memoryConfig",          "Remote memory config file",             NULL    },
         {"commGroupConfig",       "Communicator group config file",        "empty" },
-        {"logicalTopologyConfig", "Logical topology config file",          NULL    },
+        {"logicalTopologyConfig", "Logical topology config string",        NULL    },
         {"loggingConfig",         "Logging config file",                   "empty" },
         {"numQueuesPerDim",       "Number of queues per dimension",        "1"     },
         {"commScale",             "Communication scale",                   "1.0"   },
@@ -56,24 +57,22 @@ public:
         {"rendezvousProtocol",    "Whether to enable rendezvous protocol", "false" },
     )
 
-    SST_ELI_DOCUMENT_PORTS(
-        { "testPort", "Link to Merlin", { "simpleNetwork", ""} }
-    )
+    SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "nic%(numNPUs)d", "Network interface", "SST::Astra::AstraNIC"} )
 
     SST_ELI_DOCUMENT_STATISTICS( )
 
-    astraNetworkBridge(SST::ComponentId_t id, SST::Params& params);
-    astraNetworkBridge();
-    ~astraNetworkBridge();
+    AstraConnector(SST::ComponentId_t id, SST::Params& params);
+    AstraConnector();
+    ~AstraConnector();
 
-    NotSerializable(SST::astra::astraNetworkBridge)
+    NotSerializable(SST::Astra::AstraConnector)
 
+    SimTime_t getCurrentSimTimeNanoWrapper();
 private:
     SST::Output* out;
 
     std::string workloadConfig_;
     std::string systemConfig_;
-    std::string networkConfig_;
     std::string memoryConfig_;
     std::string commGroupConfig_;
     std::string logicalTopologyConfig_;
@@ -86,9 +85,14 @@ private:
     int numNPUs_;
     std::vector<int> logicalDims_;
     std::vector<int> queuesPerDim_;
+    std::vector<SST::Interfaces::SimpleNetwork*> linkControl_;
+    std::vector<AstraSimpleNetworkAdapter*> networks_;
+    std::vector<AstraSim::Sys*> systems_;
+
+    int parseTopo(const std::string&);
 
 };
 
 }
 }
-#endif /* _ASTRA_H */
+#endif /* _ASTRA_NODE_H */
