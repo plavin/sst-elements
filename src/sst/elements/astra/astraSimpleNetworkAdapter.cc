@@ -1,6 +1,6 @@
 #include "astraSimpleNetworkAdapter.h"
 
-AstraSimpleNetworkAdapter::AstraSimpleNetworkAdapter(int rank, SST::Astra::AstraConnector& owner) : AstraNetworkAPI(rank), owner_(owner){};
+AstraSimpleNetworkAdapter::AstraSimpleNetworkAdapter(int rank, SST::Astra::AstraWorkload& owner) : AstraNetworkAPI(rank), owner_(owner){};
 AstraSimpleNetworkAdapter::~AstraSimpleNetworkAdapter() {};
 int AstraSimpleNetworkAdapter::sim_send(void* buffer,
         uint64_t count,

@@ -1,9 +1,9 @@
-#include "astraConnector.h"
+#include "astraWorkload.h"
 #include "astra-sim/common/AstraNetworkAPI.hh"
 
 class AstraSimpleNetworkAdapter : public AstraSim::AstraNetworkAPI {
   public:
-    AstraSimpleNetworkAdapter(int, SST::Astra::AstraConnector& owner);
+    AstraSimpleNetworkAdapter(int, SST::Astra::AstraWorkload& owner);
     ~AstraSimpleNetworkAdapter();
 
     int sim_send(void* buffer,
@@ -47,6 +47,6 @@ class AstraSimpleNetworkAdapter : public AstraSim::AstraNetworkAPI {
 
 private:
     int rank_;
-    SST::Astra::AstraConnector& owner_;
+    SST::Astra::AstraWorkload& owner_;
 };
 
