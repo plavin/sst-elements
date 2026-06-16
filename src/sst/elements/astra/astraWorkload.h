@@ -31,7 +31,8 @@
 
 #include "astra-sim/system/Sys.hh"
 
-class AstraSimpleNetworkAdapter;
+class AstraNetworkInterface;
+class AstraNIC;
 
 namespace SST {
 namespace Astra {
@@ -89,8 +90,6 @@ private:
     int numNPUs_;
     std::vector<int> logicalDims_;
     std::vector<int> queuesPerDim_;
-    std::vector<SST::Interfaces::SimpleNetwork*> linkControl_;
-    std::vector<AstraSimpleNetworkAdapter*> networks_;
     std::vector<AstraSim::Sys*> systems_;
 
     std::vector<AstraNIC*> nics_;

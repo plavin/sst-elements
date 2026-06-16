@@ -17,7 +17,7 @@
 #include "astraWorkload.h"
 
 #include "astra-sim/system/Sys.hh"
-#include "astraSimpleNetworkAdapter.h"
+#include "astraNetworkInterface.h"
 
 
 
@@ -63,20 +63,23 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     parseTopo(logicalTopologyConfig_);
 
     for (int i = 0; i < numNPUs_; i++) {
-        linkControl_[i] = loadUserSubComponent<SST::Interfaces::SimpleNetwork>("linkControl" + std::to_string(i), ComponentInfo::SHARE_NONE, 1);
-        networks_.push_back(new AstraSimpleNetworkAdapter(i, *this));
+        nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS, params) );
         systems_.push_back(new AstraSim::Sys(
                 i, workloadConfig_, commGroupConfig_,
-                systemConfig_, nullptr, networks_.back(), logicalDims_,
+                systemConfig_, nullptr, nics_[i]->getNetworkInterface(), logicalDims_,
                 queuesPerDim_, injectionScale_, commScale_, rendezvousProtocol_));
         //TODO: free these objects in desctructor
         //TODO: change nullptr to remote memory
+        //Analytical::AnalyticalRemoteMemory* mem =
+        //    new Analytical::AnalyticalRemoteMemory(memory_configuration);
 
     }
 
-	//Analytical::AnalyticalRemoteMemory* mem =
-    //    new Analytical::AnalyticalRemoteMemory(memory_configuration);
-
+    /*
+    for (int i = 0; i < numNPUs_; i++) {
+        linkControl_[i] = loadUserSubComponent<SST::Interfaces::SimpleNetwork>("linkControl" + std::to_string(i), ComponentInfo::SHARE_NONE, 1);
+    }
+    */
 }
 
 AstraWorkload::AstraWorkload() : Component() {}

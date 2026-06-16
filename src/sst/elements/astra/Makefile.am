@@ -15,8 +15,8 @@ libastra_la_SOURCES = \
 	astraWorkload.h \
 	astraNIC.cc \
 	astraNIC.h \
-	astraSimpleNetworkAdapter.cc \
-	astraSimpleNetworkAdapter.h \
+	astraNetworkInterface.cc \
+	astraNetworkInterface.h \
 	astraEvent.h
 
 libastra_la_LDFLAGS = -module -avoid-version @ASTRASIM_LDFLAGS@
