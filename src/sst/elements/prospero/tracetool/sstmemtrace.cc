@@ -47,7 +47,7 @@ REENABLE_WARNING
 
 using namespace std;
 
-int32_t max_thread_count;
+THREADID max_thread_count;
 uint32_t trace_format;
 uint64_t instruction_count;
 uint32_t traceEnabled __attribute__((aligned(64)));
@@ -82,7 +82,7 @@ KNOB<string> KnobTraceFile(KNOB_MODE_WRITEONCE, "pintool",
     "o", "sstprospero", "Output analysis to trace file.");
 KNOB<string> KnobTraceFormat(KNOB_MODE_WRITEONCE, "pintool",
     "f", "text", "Output format, \'text\' = Plain text, \'binary\' = Binary");
-KNOB<INT32> KnobMaxThreadCount(KNOB_MODE_WRITEONCE, "pintool",
+KNOB<THREADID> KnobMaxThreadCount(KNOB_MODE_WRITEONCE, "pintool",
     "t", "1", "Maximum number of threads to record memory patterns");
 KNOB<UINT32> KnobFileBufferSize(KNOB_MODE_WRITEONCE, "pintool",
     "b", "32768", "Size in bytes for each trace buffer");
@@ -306,7 +306,7 @@ VOID Fini(INT32 code, VOID *v)
     std::cout << "PROSPERO: Main thread exists with " << thread_instr_id[0].insCount << " instructions" << std::endl;
 
     if( (0 == trace_format) || (1 == trace_format)) {
-	for(INT32 i = 0; i < max_thread_count; ++i) {
+	for(THREADID i = 0; i < max_thread_count; ++i) {
     		fclose(trace[i]);
 	}
     }
@@ -363,12 +363,12 @@ int main(int argc, char *argv[])
 	printf("PROSPERO: Tracing will be recorded in text format.\n");
 	trace_format = 0;
 
-	for(INT32 i = 0; i < max_thread_count; ++i) {
+	for(THREADID i = 0; i < max_thread_count; ++i) {
 		snprintf(nameBuffer, PRINTF_BUFSIZ, "%s-%lu-0.trace", KnobTraceFile.Value().c_str(), (unsigned long) i);
 		trace[i] = fopen(nameBuffer, "wt");
 	}
 
-	for(INT32 i = 0; i < max_thread_count; ++i) {
+	for(THREADID i = 0; i < max_thread_count; ++i) {
 		fileBuffers[i] = (char*) malloc(sizeof(char) * KnobFileBufferSize.Value());
 		setvbuf(trace[i], fileBuffers[i], _IOFBF, (size_t) KnobFileBufferSize.Value());
 	}
@@ -376,12 +376,12 @@ int main(int argc, char *argv[])
 	printf("PROSPERO: Tracing will be recorded in uncompressed binary format.\n");
 	trace_format = 1;
 
-	for(INT32 i = 0; i < max_thread_count; ++i) {
+	for(THREADID i = 0; i < max_thread_count; ++i) {
 		snprintf(nameBuffer, PRINTF_BUFSIZ, "%s-%lu-0-bin.trace", KnobTraceFile.Value().c_str(), (unsigned long) i);
 		trace[i] = fopen(nameBuffer, "wb");
 	}
 
-	for(INT32 i = 0; i < max_thread_count; ++i) {
+	for(THREADID i = 0; i < max_thread_count; ++i) {
 		fileBuffers[i] = (char*) malloc(sizeof(char) * KnobFileBufferSize.Value());
 		setvbuf(trace[i], fileBuffers[i], _IOFBF, (size_t) KnobFileBufferSize.Value());
 	}
@@ -391,7 +391,7 @@ int main(int argc, char *argv[])
     }
 
     posix_memalign((void**) &thread_instr_id, 64, sizeof(threadRecord) * max_thread_count);
-    for(INT32 i = 0; i < max_thread_count; ++i) {
+    for(THREADID i = 0; i < max_thread_count; ++i) {
 	thread_instr_id[i].insCount = 0;
 	thread_instr_id[i].threadInit = 0;
 
