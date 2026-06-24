@@ -25,49 +25,71 @@ using namespace SST;
 using namespace SST::Astra;
 using namespace SST::Interfaces;
 
-int AstraWorkload::parseTopo(const std::string& topo)
-{
-    std::stringstream ss(topo);
-    std::string item;
-
-    while (std::getline(ss, item, ',')) {
-        if (!item.empty()) {
-            logicalDims_.push_back(std::stoi(item));
-            numNPUs_ *= std::stoi(item);
-        }
-    }
-
-    queuesPerDim_ = std::vector<int>(logicalDims_.size(), numQueuesPerDim_);
-    return 0;
-}
-
 AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
 
-    out = new Output("", 1, 0, Output::STDOUT);
+    out_ = new Output("", 1, 0, Output::STDOUT);
+    dbg_ = new Output("[\@f:\@l:\@p:\@t] ", 1, 0, Output::STDERR);
 
     registerAsPrimaryComponent();
     primaryComponentDoNotEndSim();
 
     workloadConfig_        = params.find<std::string>("workloadConfig");
     systemConfig_          = params.find<std::string>("systemConfig");
+    memoryConfig_          = params.find<std::string>("memoryConfig");
     commGroupConfig_       = params.find<std::string>("commGroupConfig", "empty");
-    logicalTopologyConfig_ = params.find<std::string>("logicalTopologyConfig");
     loggingConfig_         = params.find<std::string>("loggingConfig", "empty");
     numQueuesPerDim_       = params.find<int>("numQueuesPerDim",1);
     commScale_             = params.find<double>("commScale", 1.0);
     injectionScale_        = params.find<double>("injectionScale", 1.0);
     rendezvousProtocol_    = params.find<bool>("rendezvousProtocol", false);
 
+    params.find_array<int>("logicalTopologyConfig", logicalDims_);
+    numNPUs_ = 1;
+    for (int x : logicalDims_) {
+        numNPUs_ *= x;
+    }
+    queuesPerDim_ = std::vector<int>(logicalDims_.size(), numQueuesPerDim_);
+
+    params.print_all_params(*dbg_);
+
+    dbg_->debug(CALL_INFO, 1, 0, "AstraWorkload params\n");
+    dbg_->debug(CALL_INFO, 1, 0, "  workloadConfig_: %s\n", workloadConfig_.c_str());
+    dbg_->debug(CALL_INFO, 1, 0, "  systemConfig_: %s\n", systemConfig_.c_str());
+    dbg_->debug(CALL_INFO, 1, 0, "  memoryConfig_: %s\n", memoryConfig_.c_str());
+    dbg_->debug(CALL_INFO, 1, 0, "  commGroupConfig_: %s\n", commGroupConfig_.c_str());
+    //dbg_->debug(CALL_INFO, 1, 0, "  logicalTopologyConfig_: %s\n", logicalTopologyConfig_.c_str());
+    dbg_->debug(CALL_INFO, 1, 0, "  loggingConfig_: %s\n", loggingConfig_.c_str());
+    dbg_->debug(CALL_INFO, 1, 0, "  numQueuesPerDim_: %d\n", numQueuesPerDim_);
+    dbg_->debug(CALL_INFO, 1, 0, "  commScale_: %d\n", commScale_);
+    dbg_->debug(CALL_INFO, 1, 0, "  injectionScale_: %lf\n", injectionScale_);
+    dbg_->debug(CALL_INFO, 1, 0, "  rendezvousProtocol_: %lf\n", rendezvousProtocol_);
+
+    /*
+    clockHandler_ = new Clock::Handler<AstraWorkload, &AstraWorkload::clock>(this);
+    time_ = registerClock(freq_, clockHandler_);
+    */
+
     AstraSim::LoggerFactory::init(loggingConfig_);
 
-    parseTopo(logicalTopologyConfig_);
+    //parseTopo(logicalTopologyConfig_);
+
+    dbg_->debug(CALL_INFO, 1, 0, "AstraWorkload will create %d nics and systems\n", numNPUs_);
 
     for (int i = 0; i < numNPUs_; i++) {
-        nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS, params) );
+
+        dbg_->debug(CALL_INFO, 1, 0, "Loading nic %d\n", i);
+        nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS, params, i) );
+
+        if (!nics_.back()) {
+            std::cerr <<  "Failed to load AstraNIC\n";
+        }
+
+        dbg_->debug(CALL_INFO, 1, 0, "Creating system %d\n", i);
         systems_.push_back(new AstraSim::Sys(
                 i, workloadConfig_, commGroupConfig_,
-                systemConfig_, nullptr, nics_[i]->getNetworkInterface(), logicalDims_,
+                systemConfig_, nullptr, nics_.back()->getNetworkInterface(), logicalDims_,
                 queuesPerDim_, injectionScale_, commScale_, rendezvousProtocol_));
+
         //TODO: free these objects in desctructor
         //TODO: change nullptr to remote memory
         //Analytical::AnalyticalRemoteMemory* mem =
@@ -75,6 +97,7 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
 
     }
 
+    dbg_->debug(CALL_INFO, 1, 0, "Done creating nic and systems\n");
     /*
     for (int i = 0; i < numNPUs_; i++) {
         linkControl_[i] = loadUserSubComponent<SST::Interfaces::SimpleNetwork>("linkControl" + std::to_string(i), ComponentInfo::SHARE_NONE, 1);
@@ -84,12 +107,18 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
 
 AstraWorkload::AstraWorkload() : Component() {}
 
+bool AstraWorkload::clock(SimTime_t cycle) {
+    return false;
+}
+
+
 SimTime_t AstraWorkload::getCurrentSimTimeNanoWrapper() {
     return getCurrentSimTimeNano();
 }
 
 AstraWorkload::~AstraWorkload()
 {
-    delete out;
+    delete out_;
+    delete dbg_;
 }
 

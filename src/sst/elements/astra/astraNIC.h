@@ -20,17 +20,18 @@ public:
             "AstraNIC",
             SST_ELI_ELEMENT_VERSION(1,0,0),
             "Network interface for the AstraController",
-            SST::SubComponent)
-    SST_ELI_REGISTER_SUBCOMPONENT_API(SST::Astra::AstraNIC)
+            SST::Astra::AstraNIC)
+    SST_ELI_REGISTER_SUBCOMPONENT_API(SST::Astra::AstraNIC, int)
     SST_ELI_DOCUMENT_PARAMS()
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "linkcontrol", "Network interface"} )
 
-    AstraNIC(ComponentId_t id, Params &params, int rank_);
-    AstraNIC(ComponentId_t id); //TODO do i need this?
-
+    AstraNIC(ComponentId_t id, Params &params, int nicID);
     ~AstraNIC() { }
 
-    AstraNetworkInterface * getNetworkInterface();
+    AstraNetworkInterface *getNetworkInterface();
+    SimTime_t getCurrentSimTimeNanoWrapper();
+
+    void send(AstraEvent *ev);
 
     //bool isClocked() { return true; } //TODO??
 
@@ -46,7 +47,8 @@ private:
 
     // Clocks
     Clock::HandlerBase* clockHandler_;
-    TimeConverter clockTC_;
+    TimeConverter time_;
+    int nicID_;
 
 }; // class AstraNIC
 } // namespace Astra

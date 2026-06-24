@@ -66,15 +66,20 @@ public:
 
     SST_ELI_DOCUMENT_STATISTICS( )
 
+    //SST_ELI_DOCUMENT_PORTS( {"port%d"
+
     AstraWorkload(SST::ComponentId_t id, SST::Params& params);
     AstraWorkload();
     ~AstraWorkload();
+
+    bool clock(SimTime_t cycle);
 
     NotSerializable(SST::Astra::AstraWorkload)
 
     SimTime_t getCurrentSimTimeNanoWrapper();
 private:
-    SST::Output* out;
+    SST::Output* out_;
+    SST::Output* dbg_;
 
     std::string workloadConfig_;
     std::string systemConfig_;
@@ -93,6 +98,10 @@ private:
     std::vector<AstraSim::Sys*> systems_;
 
     std::vector<AstraNIC*> nics_;
+
+    TimeConverter time_;
+    Clock::HandlerBase* clockHandler_;
+
 
     int parseTopo(const std::string&);
 
