@@ -18,12 +18,9 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
 	lcparams.insert("link_bw", params.find<std::string>("network_bw", "80GiB/s"));
 	lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "1KiB"));
 	lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "1KiB"));
-	//lcparams.insert("port_name", params.find<std::string>("port", "")); //TODO - port name??
 
-    /*
-    freq_ = params.find<std::string>("frequency", "2.0GHz");
+    std::string freq_ = params.find<std::string>("frequency", "2.0GHz");
     registerClock(freq_, new Clock::Handler<AstraNIC, &AstraNIC::tick>(this));
-    */
 
     // TODO: get from params?
     std::string portName = "port" + std::to_string(nicID_);
@@ -67,19 +64,37 @@ void AstraNIC::finish() {
 
 bool AstraNIC::tick(SimTime_t cycle) {
     bool disableClock = false;
-    //drain send queue
 
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Send queue size: %d\n", nicID_, sendQueue.size());
+
+    //drain send queue
+    int sendCount = 0;
+    while(!sendQueue.empty()) {
+        auto head = sendQueue.front();
+        if (linkControl_->spaceToSend(0, head->size_in_bits) && linkControl_->send(head, 0)) {
+            sendQueue.pop();
+            sendCount += 1;
+        } else {
+            break;
+        }
+    }
+
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
+
+    if (sendQueue.empty()) disableClock = true;
     return disableClock;
 }
 
 // Called by networkInterface_ to send a packet
 void AstraNIC::send(AstraEvent* ae) {
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Received send event from AstraNetworkInterface\n", nicID_);
     auto req = new SimpleNetwork::Request();
     req->src = nicID_;
-    //req->dest = ae-
+    req->dest = ae->dst_;
     req->givePayload(ae);
+    sendQueue.push(req);
+    disableClock = false; // Re-enable the clock so we can send this event across the link
 }
-
 
 } // namespace Astra
 } // namespace SST

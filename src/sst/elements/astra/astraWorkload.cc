@@ -111,6 +111,11 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
         for (int i = 0; i < numNPUs_; i++) {
             nics_[i]->setup();
         }
+
+        // Kick off ASTRA-sim
+        for (int i = 0; i < numNPUs_; i++) {
+            systems_[i]->workload->fire();
+        }
     }
     void AstraWorkload::complete(unsigned int phase) {
         for (int i = 0; i < numNPUs_; i++) {
