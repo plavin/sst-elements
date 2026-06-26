@@ -33,11 +33,21 @@ public:
 
     void send(AstraEvent *ev);
 
+    bool tick(SimTime_t cycle);
+
+    void init(unsigned int phase) override;
+    void setup() override;
+    void complete(unsigned int phase) override;
+    void finish() override;
+
     //bool isClocked() { return true; } //TODO??
 
 private:
 
     SST::Interfaces::SimpleNetwork *linkControl_;
+
+    SST::Output* out_;
+    SST::Output* dbg_;
 
     // Event queues
     std::queue<SST::Interfaces::SimpleNetwork::Request*> sendQueue; // Queue of events waiting to be sent on clock

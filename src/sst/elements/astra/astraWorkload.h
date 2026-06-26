@@ -66,7 +66,7 @@ public:
 
     SST_ELI_DOCUMENT_STATISTICS( )
 
-    //SST_ELI_DOCUMENT_PORTS( {"port%d"
+    SST_ELI_DOCUMENT_PORTS( {"port%d", "Network ports", { "astra.AstraEvent" }} )
 
     AstraWorkload(SST::ComponentId_t id, SST::Params& params);
     AstraWorkload();

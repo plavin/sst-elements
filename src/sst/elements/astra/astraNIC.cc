@@ -9,22 +9,34 @@ namespace Astra {
 
 AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(id), nicID_(nicID) {
 //AstraNIC::AstraNIC(ComponentId_t id, Params &params) : SubComponent(id) {
+    out_ = new Output("", 1, 0, Output::STDOUT);
+    dbg_ = new Output("[\@f:\@l:\@p:\@t] ", 1, 0, Output::STDERR);
+
     networkInterface_ = new AstraNetworkInterface(nicID_, *this);
     std::string lctype = params.find<std::string>("linkcontrol", "merlin.linkcontrol");
     Params lcparams;
 	lcparams.insert("link_bw", params.find<std::string>("network_bw", "80GiB/s"));
 	lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "1KiB"));
 	lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "1KiB"));
-	lcparams.insert("port_name", params.find<std::string>("port", "")); //TODO - port name??
+	//lcparams.insert("port_name", params.find<std::string>("port", "")); //TODO - port name??
 
     /*
     freq_ = params.find<std::string>("frequency", "2.0GHz");
     registerClock(freq_, new Clock::Handler<AstraNIC, &AstraNIC::tick>(this));
     */
 
+    // TODO: get from params?
+    std::string portName = "port" + std::to_string(nicID_);
 
-    //TODO - reenable
-    // linkControl_ = loadAnonymousSubComponent<SST::Interfaces::SimpleNetwork>(lctype, "port", 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, lcparams, 1); // TODO "port" param??
+    lcparams.insert("port_name", portName);
+    dbg_->debug(CALL_INFO, 1, 0, "Loading linkController:\n");
+    dbg_->debug(CALL_INFO, 1, 0, "  nicID_: %d\n", nicID);
+    dbg_->debug(CALL_INFO, 1, 0, "  type: %s\n", lctype.c_str());
+    dbg_->debug(CALL_INFO, 1, 0, "  portname: %s\n", portName.c_str());
+    linkControl_ = loadAnonymousSubComponent<SST::Interfaces::SimpleNetwork>(lctype, portName, 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, lcparams, 1);
+    if (!linkControl_) {
+        out_->fatal(CALL_INFO, 1, "Failed to load linkcontroller\n");
+    }
 };
 
 //AstraNIC::AstraNIC(ComponentId_t id) : SubComponent(id) { }
@@ -35,6 +47,29 @@ AstraNetworkInterface* AstraNIC::getNetworkInterface() {
 
 SimTime_t AstraNIC::getCurrentSimTimeNanoWrapper() {
     return getCurrentSimTimeNano();
+}
+
+void AstraNIC::init(unsigned int phase) {
+    linkControl_->init(phase);
+}
+
+void AstraNIC::setup() {
+    linkControl_->setup();
+}
+
+void AstraNIC::complete(unsigned int phase) {
+    linkControl_->complete(phase);
+}
+
+void AstraNIC::finish() {
+    linkControl_->finish();
+}
+
+bool AstraNIC::tick(SimTime_t cycle) {
+    bool disableClock = false;
+    //drain send queue
+
+    return disableClock;
 }
 
 // Called by networkInterface_ to send a packet

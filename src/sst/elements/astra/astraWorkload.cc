@@ -18,7 +18,7 @@
 
 #include "astra-sim/system/Sys.hh"
 #include "astraNetworkInterface.h"
-
+#include "analytical/AnalyticalRemoteMemory.hh"
 
 
 using namespace SST;
@@ -71,9 +71,11 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
 
     AstraSim::LoggerFactory::init(loggingConfig_);
 
-    //parseTopo(logicalTopologyConfig_);
-
     dbg_->debug(CALL_INFO, 1, 0, "AstraWorkload will create %d nics and systems\n", numNPUs_);
+
+    dbg_->debug(CALL_INFO, 1, 0, "Creating Remote Memory\n");
+    Analytical::AnalyticalRemoteMemory* mem_ =
+         new Analytical::AnalyticalRemoteMemory(memoryConfig_);
 
     for (int i = 0; i < numNPUs_; i++) {
 
@@ -81,19 +83,14 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
         nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS, params, i) );
 
         if (!nics_.back()) {
-            std::cerr <<  "Failed to load AstraNIC\n";
+            out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d\n", i);
         }
 
         dbg_->debug(CALL_INFO, 1, 0, "Creating system %d\n", i);
         systems_.push_back(new AstraSim::Sys(
                 i, workloadConfig_, commGroupConfig_,
-                systemConfig_, nullptr, nics_.back()->getNetworkInterface(), logicalDims_,
+                systemConfig_, mem_, nics_.back()->getNetworkInterface(), logicalDims_,
                 queuesPerDim_, injectionScale_, commScale_, rendezvousProtocol_));
-
-        //TODO: free these objects in desctructor
-        //TODO: change nullptr to remote memory
-        //Analytical::AnalyticalRemoteMemory* mem =
-        //    new Analytical::AnalyticalRemoteMemory(memory_configuration);
 
     }
 
