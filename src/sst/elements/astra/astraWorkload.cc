@@ -102,6 +102,28 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     */
 }
 
+    void AstraWorkload::init(unsigned int phase) {
+        for (int i = 0; i < numNPUs_; i++) {
+            nics_[i]->init(phase);
+        }
+    }
+    void AstraWorkload::setup() {
+        for (int i = 0; i < numNPUs_; i++) {
+            nics_[i]->setup();
+        }
+    }
+    void AstraWorkload::complete(unsigned int phase) {
+        for (int i = 0; i < numNPUs_; i++) {
+            nics_[i]->complete(phase);
+        }
+    }
+    void AstraWorkload::finish() {
+        for (int i = 0; i < numNPUs_; i++) {
+            nics_[i]->finish();
+        }
+    }
+
+
 AstraWorkload::AstraWorkload() : Component() {}
 
 bool AstraWorkload::clock(SimTime_t cycle) {

@@ -77,6 +77,12 @@ public:
     NotSerializable(SST::Astra::AstraWorkload)
 
     SimTime_t getCurrentSimTimeNanoWrapper();
+
+    void init(unsigned int phase) override;
+    void setup() override;
+    void complete(unsigned int phase) override;
+    void finish() override;
+
 private:
     SST::Output* out_;
     SST::Output* dbg_;
