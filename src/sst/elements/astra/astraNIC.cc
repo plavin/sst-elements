@@ -15,12 +15,13 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     networkInterface_ = new AstraNetworkInterface(nicID_, *this);
     std::string lctype = params.find<std::string>("linkcontrol", "merlin.linkcontrol");
     Params lcparams;
-	lcparams.insert("link_bw", params.find<std::string>("network_bw", "80GiB/s"));
-	lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "1KiB"));
-	lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "1KiB"));
+    lcparams.insert("link_bw", params.find<std::string>("network_bw", "80GiB/s"));
+    lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "1KiB"));
+    lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "1KiB"));
 
-    std::string freq_ = params.find<std::string>("frequency", "2.0GHz");
-    registerClock(freq_, new Clock::Handler<AstraNIC, &AstraNIC::tick>(this));
+    freq_ = params.find<std::string>("frequency", "2.0GHz");
+    clockHandler_ = new Clock::Handler<AstraNIC, &AstraNIC::tick>(this);
+    registerClock(freq_, clockHandler_);
 
     // TODO: get from params?
     std::string portName = "port" + std::to_string(nicID_);
@@ -62,6 +63,10 @@ void AstraNIC::finish() {
     linkControl_->finish();
 }
 
+bool AstraNIC::isClocked() {
+    return isClocked_;
+}
+
 bool AstraNIC::tick(SimTime_t cycle) {
     bool disableClock = false;
 
@@ -81,7 +86,10 @@ bool AstraNIC::tick(SimTime_t cycle) {
 
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
 
-    if (sendQueue.empty()) disableClock = true;
+    if (sendQueue.empty()) {
+        disableClock = true;
+        isClocked_ = false;
+    }
     return disableClock;
 }
 
@@ -93,7 +101,11 @@ void AstraNIC::send(AstraEvent* ae) {
     req->dest = ae->dst_;
     req->givePayload(ae);
     sendQueue.push(req);
-    disableClock = false; // Re-enable the clock so we can send this event across the link
+    if (!isClocked_) {
+        registerClock(freq_,clockHandler_);
+        isClocked_ = true;
+    }
+
 }
 
 } // namespace Astra

@@ -40,7 +40,7 @@ public:
     void complete(unsigned int phase) override;
     void finish() override;
 
-    //bool isClocked() { return true; } //TODO??
+    bool isClocked();
 
 private:
 
@@ -55,10 +55,13 @@ private:
     // AstraSim simulator object
     AstraNetworkInterface *networkInterface_;
 
+    std::string freq_;
+
     // Clocks
     Clock::HandlerBase* clockHandler_;
     TimeConverter time_;
     int nicID_;
+    bool isClocked_;
 
 }; // class AstraNIC
 } // namespace Astra
