@@ -24,16 +24,16 @@ public:
     SST_ELI_REGISTER_SUBCOMPONENT_API(SST::Astra::AstraNIC, int)
     SST_ELI_DOCUMENT_PARAMS()
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "linkcontrol", "Network interface"} )
+    SST_ELI_DOCUMENT_PORTS( {"self", "Self link for scheduling sim_schedule calls", { "astra.AstraEvent" }} )
 
     AstraNIC(ComponentId_t id, Params &params, int nicID);
     ~AstraNIC() { }
 
     AstraNetworkInterface *getNetworkInterface();
-    SimTime_t getCurrentSimTimeNanoWrapper();
-
-    void send(AstraEvent *ev);
 
     bool tick(SimTime_t cycle);
+    void handleSimSchedule(Event* ev);
+    bool handleRecv(int);
 
     void init(unsigned int phase) override;
     void setup() override;
@@ -41,6 +41,24 @@ public:
     void finish() override;
 
     bool isClocked();
+
+    // AstraNetworkAPI
+    void sim_schedule(AstraSim::timespec_t delta,
+            void (*fun_ptr)(void* fun_arg),
+            void* fun_arg);
+    AstraSim::timespec_t sim_get_time();
+    void sim_notify_finished();
+    int sim_send(void* buffer,
+					 uint64_t count,
+					 int type,
+					 int dst,
+					 int tag,
+					 AstraSim::sim_request* request,
+					 void (*msg_handler)(void* fun_arg),
+					 void* fun_arg); //TODO - mark override if we end up doing multiple inheritance
+
+
+
 
 private:
 
@@ -62,6 +80,8 @@ private:
     TimeConverter time_;
     int nicID_;
     bool isClocked_;
+
+    SST::Link* selfLink_;
 
 }; // class AstraNIC
 } // namespace Astra

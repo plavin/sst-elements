@@ -30,8 +30,10 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     out_ = new Output("", 1, 0, Output::STDOUT);
     dbg_ = new Output("[\@f:\@l:\@p:\@t] ", 1, 0, Output::STDERR);
 
+    /* TODO - is it ok if just the NICs are primary?
     registerAsPrimaryComponent();
     primaryComponentDoNotEndSim();
+    */
 
     workloadConfig_        = params.find<std::string>("workloadConfig");
     systemConfig_          = params.find<std::string>("systemConfig");

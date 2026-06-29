@@ -15,11 +15,7 @@ int AstraNetworkInterface::sim_send(
         void (*msg_handler)(void* fun_arg),
         void* fun_arg)
 {
-    auto ae = new SST::Astra::AstraEvent();
-    ae->dst_ = dst;
-    nic_.send(ae);
-
-    return 0;
+    return nic_.sim_send(msg, msg_size, type, dst, tag, request, msg_handler, fun_arg);
 }
 
 int AstraNetworkInterface::sim_recv(void* buffer,
@@ -31,7 +27,7 @@ int AstraNetworkInterface::sim_recv(void* buffer,
         void (*msg_handler)(void* fun_arg),
         void* fun_arg)
 {
-  return 0;
+    return 0;
 }
 
 /*
@@ -45,14 +41,13 @@ void AstraNetworkInterface::sim_schedule(AstraSim::timespec_t delta,
         void (*fun_ptr)(void* fun_arg),
         void* fun_arg)
 {
+    nic_.sim_schedule(delta, fun_ptr, fun_arg);
     return;
 }
 
-AstraSim::timespec_t AstraNetworkInterface::sim_get_time() {
-    AstraSim::timespec_t ts;
-    ts.time_res = AstraSim::NS;
-    ts.time_val = nic_.getCurrentSimTimeNanoWrapper();
-    return ts;
+AstraSim::timespec_t AstraNetworkInterface::sim_get_time()
+{
+    return nic_.sim_get_time();
 }
 
 double AstraNetworkInterface::get_BW_at_dimension(int dim) {
@@ -64,5 +59,6 @@ double AstraNetworkInterface::get_BW_at_dimension(int dim) {
 // Therefore, when implementing this function, the network handler must
 // find a way to concur that all ranks have finished their workloads.
 void AstraNetworkInterface::sim_notify_finished(){
+    nic_.sim_notify_finished();
     return;
 }
