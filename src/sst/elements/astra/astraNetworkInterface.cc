@@ -18,8 +18,8 @@ int AstraNetworkInterface::sim_send(
     return nic_.sim_send(msg, msg_size, type, dst, tag, request, msg_handler, fun_arg);
 }
 
-int AstraNetworkInterface::sim_recv(void* buffer,
-        uint64_t count,
+int AstraNetworkInterface::sim_recv(void* msg,
+        uint64_t msg_size,
         int type,
         int src,
         int tag,
@@ -27,7 +27,7 @@ int AstraNetworkInterface::sim_recv(void* buffer,
         void (*msg_handler)(void* fun_arg),
         void* fun_arg)
 {
-    return 0;
+    return nic_.sim_recv(msg, msg_size, type, src, tag, request, msg_handler, fun_arg);
 }
 
 /*

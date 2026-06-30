@@ -15,7 +15,7 @@ public:
     void* buffer_; //TODO
     uint64_t count_;
     int type_;
-    int src_;
+    int src_; // TODO - src and dst also recorded in SimpleNetwork::Request
     int dst_;
     int tag_;
     AstraSim::sim_request* request_; //TODO

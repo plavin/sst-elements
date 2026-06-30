@@ -1,5 +1,7 @@
 #pragma once
 
+#include <tuple>
+
 #include <sst/core/event.h>
 #include <sst/core/output.h>
 #include <sst/core/subcomponent.h>
@@ -8,9 +10,31 @@
 #include "astraNetworkInterface.h"
 #include "astraEvent.h"
 
+using MsgKey = std::tuple<int, int, int>; //(src dst tag) uniquely identifies a message
+
 
 namespace SST {
 namespace Astra {
+
+class CallbackHolder {
+public:
+    using MsgHandler = void (*)(void*);
+
+    CallbackHolder() = default;
+
+    CallbackHolder(MsgHandler handler, void* arg)
+        : msg_handler(handler), fun_arg(arg) {}
+
+    void invoke() const {
+        if (msg_handler) {
+            msg_handler(fun_arg);
+        }
+    }
+
+private:
+    MsgHandler msg_handler = nullptr;
+    void* fun_arg = nullptr;
+};
 
 class AstraNIC : public SubComponent {
 
@@ -49,13 +73,21 @@ public:
     AstraSim::timespec_t sim_get_time();
     void sim_notify_finished();
     int sim_send(void* buffer,
-					 uint64_t count,
-					 int type,
-					 int dst,
-					 int tag,
-					 AstraSim::sim_request* request,
-					 void (*msg_handler)(void* fun_arg),
-					 void* fun_arg); //TODO - mark override if we end up doing multiple inheritance
+         uint64_t count,
+         int type,
+         int dst,
+         int tag,
+         AstraSim::sim_request* request,
+         void (*msg_handler)(void* fun_arg),
+         void* fun_arg); //TODO - mark override if we end up doing multiple inheritance
+    int sim_recv(void* msg,
+         uint64_t msg_size,
+         int type,
+         int src,
+         int tag,
+         AstraSim::sim_request* request,
+         void (*msg_handler)(void* fun_arg),
+         void* fun_arg); //TODO - mark override if we end up doing multiple inheritance
 
 
 
@@ -82,6 +114,9 @@ private:
     bool isClocked_;
 
     SST::Link* selfLink_;
+
+    // Holds track events so we know when to call recv msgHandlers
+    std::map<MsgKey, CallbackHolder> msgMap_;
 
 }; // class AstraNIC
 } // namespace Astra

@@ -94,12 +94,15 @@ bool AstraNIC::tick(SimTime_t cycle) {
     }
 
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
-
+    return false;
+    //TODO - undo this
+    /*
     if (sendQueue.empty()) {
         disableClock = true;
         isClocked_ = false;
     }
     return disableClock;
+    */
 }
 
 int AstraNIC::sim_send(void* buffer,
@@ -114,8 +117,15 @@ int AstraNIC::sim_send(void* buffer,
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Received send event from AstraNetworkInterface\n", nicID_);
 
     auto ae = new SST::Astra::AstraEvent();
+    ae->buffer_ = buffer; //TODO - copy? free original?
+    ae->count_ = count;
+    ae->type_ = type;
+    ae->src_ = nicID_;
     ae->dst_ = dst;
-    //TODO - fill in reset of ae feilds
+    ae->tag_ = tag;
+    ae->request_ = request; // TODO - what do we do with this?
+    ae->msg_handler_ = msg_handler;
+    ae->fun_arg_ = fun_arg;
 
     auto req = new SimpleNetwork::Request();
     req->src = nicID_;
@@ -128,6 +138,30 @@ int AstraNIC::sim_send(void* buffer,
     }
     return 0;
 }
+
+int AstraNIC::sim_recv(void* msg,
+        uint64_t msg_size,
+        int type,
+        int src,
+        int tag,
+        AstraSim::sim_request* request,
+        void (*msg_handler)(void* fun_arg),
+        void* fun_arg) {
+    return 0;
+
+    MsgKey mk{src, nicID_, tag};
+    auto it = msgMap_.find(mk);
+    if (it != msgMap_.end()) {
+        //Send already completed
+        msg_handler(fun_arg);
+        msgMap_.erase(it);
+    } else{
+        //Send not yet completed
+        msgMap_[mk] = CallbackHolder{msg_handler, fun_arg};
+    }
+
+}
+
 
 void AstraNIC::sim_schedule(AstraSim::timespec_t delta,
                 void (*fun_ptr)(void* fun_arg),
@@ -156,9 +190,28 @@ void AstraNIC::handleSimSchedule(Event* ev) {
 }
 
 bool AstraNIC::handleRecv(int) {
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d got req\n", nicID_);
     AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d got ae\n", nicID_);
     ae->msg_handler_(ae->fun_arg_);
+
+    //TODO - remove undersores from ae elements I think
+    MsgKey mk{ae->src_, ae->dst_, ae->tag_};
+    auto it = msgMap_.find(mk);
+    if (it != msgMap_.end()) {
+        // Recv already posted
+        CallbackHolder& cb = it->second;
+        cb.invoke();
+        msgMap_.erase(it);
+    } else {
+        // Recv not yet posted
+        msgMap_[mk] = CallbackHolder{};
+    }
+
+
+
     /*
     auto sn = static_cast<
     auto ae = static_cast<AstraEvent*>(ev);
