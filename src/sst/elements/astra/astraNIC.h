@@ -12,15 +12,6 @@
 
 #include "msgKey.h"
 
-//using MsgKey = std::tuple<int, int, int>; //(src dst tag) uniquely identifies a message
-/*
-std::string mk_to_str(const std::tuple<int, int, int>& t) {
-    return "(" + std::to_string(std::get<0>(t)) + ", " +
-                 std::to_string(std::get<1>(t)) + ", " +
-                 std::to_string(std::get<2>(t)) + ")";
-}
-*/
-
 namespace SST {
 namespace Astra {
 
