@@ -150,6 +150,9 @@ int AstraNIC::sim_recv(void* msg,
     return 0;
 
     MsgKey mk{src, nicID_, tag};
+
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d: MsgKey: %s\n", nicID_, mk.to_string());
+
     auto it = msgMap_.find(mk);
     if (it != msgMap_.end()) {
         //Send already completed
@@ -192,9 +195,7 @@ void AstraNIC::handleSimSchedule(Event* ev) {
 bool AstraNIC::handleRecv(int) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d got req\n", nicID_);
     AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d got ae\n", nicID_);
     ae->msg_handler_(ae->fun_arg_);
 
     //TODO - remove undersores from ae elements I think
@@ -211,16 +212,6 @@ bool AstraNIC::handleRecv(int) {
     }
 
 
-
-    /*
-    auto sn = static_cast<
-    auto ae = static_cast<AstraEvent*>(ev);
-    */
-    //ae->msg_handler_(ae->fun_arg_);
-    // TODO test to see if the matching recv has posted
-    // TODO call appropriate handlers
-    // TODO figure out what to do if recv comes first - how to store it
-    //ae->msg_handler_(ae->fun_arg_);
     if (!isClocked_) {
         // TODO - is this needed? - Answer may depend on if we get a send or a recv and whether we already have the other side
         reregisterClock(freq_, clockHandler_);
