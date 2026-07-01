@@ -45,7 +45,7 @@ public:
             "Network interface for the AstraController",
             SST::Astra::AstraNIC)
     SST_ELI_REGISTER_SUBCOMPONENT_API(SST::Astra::AstraNIC, int)
-    SST_ELI_DOCUMENT_PARAMS()
+    SST_ELI_DOCUMENT_PARAMS( { "mtu", "Maximum packet size in bytes", "1500"} )
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "linkcontrol", "Network interface"} )
     SST_ELI_DOCUMENT_PORTS( {"self", "Self link for scheduling sim_schedule calls", { "astra.AstraEvent" }} )
 
@@ -97,8 +97,8 @@ private:
     SST::Output* dbg_;
 
     // Event queues
-    std::queue<SST::Interfaces::SimpleNetwork::Request*> sendQueue; // Queue of packets waiting to be sent
-    std::queue<AstraEvent*> msgQueue_; // Queue of messages waiting to be sent, before they have been packetized
+    std::queue<SST::Interfaces::SimpleNetwork::Request*> sendQueue; // Queue of packets waiting to be sent across the link
+    std::queue<SST::Interfaces::SimpleNetwork::Request*> recvQueue; // Queue of packets waiting to be processed
 
     // AstraSim simulator object
     AstraNetworkInterface *networkInterface_;
@@ -110,6 +110,9 @@ private:
     TimeConverter time_;
     int nicID_;
     bool isClocked_;
+
+    // Params
+    int mtu_;
 
     SST::Link* selfLink_;
 

@@ -16,12 +16,16 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     registerAsPrimaryComponent();
     primaryComponentDoNotEndSim();
 
+    // NIC Params
+    mtu_ = params.find<int>("mtu", "1500");
+
+    // Link params
     networkInterface_ = new AstraNetworkInterface(nicID_, *this);
     std::string lctype = params.find<std::string>("linkcontrol", "merlin.linkcontrol");
     Params lcparams;
     lcparams.insert("link_bw", params.find<std::string>("network_bw", "80GiB/s"));
-    lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "1KiB"));
-    lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "1KiB"));
+    lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "8KiB"));
+    lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "8KiB"));
 
     freq_ = params.find<std::string>("frequency", "2.0GHz");
     clockHandler_ = new Clock::Handler<AstraNIC, &AstraNIC::tick>(this);
@@ -68,22 +72,54 @@ void AstraNIC::finish() {
 bool AstraNIC::tick(SimTime_t cycle) {
     bool disableClock = false;
 
+
+    int recvCount = 0;
+    while (!recvQueue.empty()) {
+        SimpleNetwork::Request* req = recvQueue.front(); // TODO - do I need to limit how much can be done per cycle?
+        recvQueue.pop();
+        AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
+
+        // Notify AstraSim::Sys that the send has completed
+        if (req->tail) {
+            ae->msg_handler_(ae->fun_arg_);
+
+            MsgKey mk{req->src, req->dest, ae->tag_};
+            auto it = msgMap_.find(mk);
+            if (it != msgMap_.end()) {
+                // Recv already posted
+                CallbackHolder& cb = it->second;
+                cb.invoke();
+                msgMap_.erase(it);
+            } else {
+                // Recv not yet posted
+                msgMap_[mk] = CallbackHolder{};
+            }
+        }
+        delete(ae);
+        delete(req);
+
+    }
+
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Send queue size: %d\n", nicID_, sendQueue.size());
 
     //drain send queue
     int sendCount = 0;
     while(!sendQueue.empty()) {
         SimpleNetwork::Request* head = sendQueue.front();
-        if (linkControl_->spaceToSend(0, head->size_in_bits) && linkControl_->send(head, 0)) {
+        if (!linkControl_->spaceToSend(0, head->size_in_bits)) {
+            dbg_->debug(CALL_INFO, 1, 0, "No space to send!\n");
+            break;
+        } else if (!linkControl_->send(head, 0)){
+            dbg_->debug(CALL_INFO, 1, 0, "Failed to send!\n");
+            break;
+        } else {
             sendQueue.pop();
             sendCount += 1;
-        } else {
-            break;
         }
     }
 
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
-    //return false;
+
     // TODO - continue to evaluate if this changes the timings. seems OK for now.
     if (sendQueue.empty()) {
         disableClock = true;
@@ -104,26 +140,13 @@ void AstraNIC::handleSimSchedule(Event* ev) {
     }
 }
 
-// Notifies us that a send across the network has completed
+// Called when a packet is received
+// TODO put this in clock handler
 bool AstraNIC::handleRecv(int) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
-    AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
+    recvQueue.push(req);
 
-    // Notify AstraSim::Sys that the send has completed
-    ae->msg_handler_(ae->fun_arg_);
-
-    MsgKey mk{ae->src_, ae->dst_, ae->tag_};
-    auto it = msgMap_.find(mk);
-    if (it != msgMap_.end()) {
-        // Recv already posted
-        CallbackHolder& cb = it->second;
-        cb.invoke();
-        msgMap_.erase(it);
-    } else {
-        // Recv not yet posted
-        msgMap_[mk] = CallbackHolder{};
-    }
 
     if (!isClocked_) {
         // TODO - is this needed? - Answer may depend on if we get a send or a recv and whether we already have the other side
@@ -131,8 +154,7 @@ bool AstraNIC::handleRecv(int) {
         isClocked_ = true;
     }
 
-    delete(ae);
-    return true;
+    return true; // TODO - what is this?
 }
 
 /*********************************************************/
@@ -151,6 +173,7 @@ AstraSim::timespec_t AstraNIC::sim_get_time() {
     return ts;
 }
 
+// Receive messages from AstraSim and packetize them
 int AstraNIC::sim_send(void* buffer,
 				 uint64_t count,
 				 int type,
@@ -162,27 +185,39 @@ int AstraNIC::sim_send(void* buffer,
 {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d sim_send\n", nicID_);
 
-    auto ae = new SST::Astra::AstraEvent();
-    ae->buffer_ = buffer; //TODO - copy? free original?
-    ae->count_ = count;
-    ae->type_ = type;
-    ae->src_ = nicID_;
-    ae->dst_ = dst;
-    ae->tag_ = tag;
-    ae->request_ = request; // TODO - what do we do with this?
-    ae->msg_handler_ = msg_handler;
-    ae->fun_arg_ = fun_arg;
+    int num_packets = (count / mtu_) + ((count % mtu_) != 0);
+    int msg_size_rem = count;
+    for (int i = 0; i < num_packets; i++) {
+        auto ae = new AstraEvent();
+        ae->tag_ = tag;
 
-    auto req = new SimpleNetwork::Request();
-    req->src = nicID_;
-    req->dest = ae->dst_;
-    req->size_in_bits = ae->count_*8; // TODO is this right?
-    req->givePayload(ae);
-    sendQueue.push(req);
-    if (!isClocked_) {
-        reregisterClock(freq_,clockHandler_);
-        isClocked_ = true;
+        auto req = new SimpleNetwork::Request();
+        req->src = nicID_;
+        req->dest = dst;
+
+        if (i == (num_packets - 1)) {
+            ae->msg_handler_ = msg_handler;
+            ae->fun_arg_ = fun_arg;
+
+            //req->size_in_bits = msg_size_rem * 8;
+            req->size_in_bits = 1;
+            req->tail = true;
+        } else {
+            //req->size_in_bits = mtu_ * 8;
+            req->size_in_bits = 1;
+            req->tail = false;
+            msg_size_rem -= mtu_;
+        }
+
+        req->givePayload(ae);
+
+        sendQueue.push(req);
     }
+
+    dbg_->debug(CALL_INFO, 1, 0, "Pushed %d packets\n", num_packets);
+
+    reregisterClock(freq_,clockHandler_);
+    isClocked_ = true;
     return 0;
 }
 
@@ -197,7 +232,7 @@ int AstraNIC::sim_recv(void* msg,
 
     MsgKey mk{src, nicID_, tag};
 
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d: MsgKey: %s\n", nicID_, mk.to_string());
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d\n", nicID_);
 
     auto it = msgMap_.find(mk);
     if (it != msgMap_.end()) {
