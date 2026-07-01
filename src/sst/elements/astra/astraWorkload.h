@@ -79,7 +79,6 @@ public:
 
 private:
     SST::Output* out_;
-    SST::Output* dbg_;
 
     std::string workloadConfig_;
     std::string systemConfig_;

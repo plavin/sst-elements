@@ -73,7 +73,7 @@ bool AstraNIC::tick(SimTime_t cycle) {
     //drain send queue
     int sendCount = 0;
     while(!sendQueue.empty()) {
-        auto head = sendQueue.front();
+        SimpleNetwork::Request* head = sendQueue.front();
         if (linkControl_->spaceToSend(0, head->size_in_bits) && linkControl_->send(head, 0)) {
             sendQueue.pop();
             sendCount += 1;
@@ -176,6 +176,7 @@ int AstraNIC::sim_send(void* buffer,
     auto req = new SimpleNetwork::Request();
     req->src = nicID_;
     req->dest = ae->dst_;
+    req->size_in_bits = ae->count_*8; // TODO is this right?
     req->givePayload(ae);
     sendQueue.push(req);
     if (!isClocked_) {

@@ -27,8 +27,7 @@ using namespace SST::Interfaces;
 
 AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
 
-    out_ = new Output("", 1, 0, Output::STDOUT);
-    dbg_ = new Output("[\@f:\@l:\@p:\@t] ", 1, 0, Output::STDERR);
+    out_ = new Output("[\@f:\@l:\@p:\@t] ", 1, 0, Output::STDERR);
 
     workloadConfig_        = params.find<std::string>("workloadConfig");
     systemConfig_          = params.find<std::string>("systemConfig");
@@ -47,38 +46,36 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     }
     queuesPerDim_ = std::vector<int>(logicalDims_.size(), numQueuesPerDim_);
 
-    params.print_all_params(*dbg_);
-
-    dbg_->debug(CALL_INFO, 1, 0, "AstraWorkload params\n");
-    dbg_->debug(CALL_INFO, 1, 0, "  workloadConfig_: %s\n", workloadConfig_.c_str());
-    dbg_->debug(CALL_INFO, 1, 0, "  systemConfig_: %s\n", systemConfig_.c_str());
-    dbg_->debug(CALL_INFO, 1, 0, "  memoryConfig_: %s\n", memoryConfig_.c_str());
-    dbg_->debug(CALL_INFO, 1, 0, "  commGroupConfig_: %s\n", commGroupConfig_.c_str());
-    //dbg_->debug(CALL_INFO, 1, 0, "  logicalTopologyConfig_: %s\n", logicalTopologyConfig_.c_str());
-    dbg_->debug(CALL_INFO, 1, 0, "  loggingConfig_: %s\n", loggingConfig_.c_str());
-    dbg_->debug(CALL_INFO, 1, 0, "  numQueuesPerDim_: %d\n", numQueuesPerDim_);
-    dbg_->debug(CALL_INFO, 1, 0, "  commScale_: %d\n", commScale_);
-    dbg_->debug(CALL_INFO, 1, 0, "  injectionScale_: %lf\n", injectionScale_);
-    dbg_->debug(CALL_INFO, 1, 0, "  rendezvousProtocol_: %lf\n", rendezvousProtocol_);
+    out_->debug(CALL_INFO, 1, 0, "AstraWorkload params\n");
+    out_->debug(CALL_INFO, 1, 0, "  workloadConfig_: %s\n", workloadConfig_.c_str());
+    out_->debug(CALL_INFO, 1, 0, "  systemConfig_: %s\n", systemConfig_.c_str());
+    out_->debug(CALL_INFO, 1, 0, "  memoryConfig_: %s\n", memoryConfig_.c_str());
+    out_->debug(CALL_INFO, 1, 0, "  commGroupConfig_: %s\n", commGroupConfig_.c_str());
+    //out_->debug(CALL_INFO, 1, 0, "  logicalTopologyConfig_: %s\n", logicalTopologyConfig_.c_str());
+    out_->debug(CALL_INFO, 1, 0, "  loggingConfig_: %s\n", loggingConfig_.c_str());
+    out_->debug(CALL_INFO, 1, 0, "  numQueuesPerDim_: %d\n", numQueuesPerDim_);
+    out_->debug(CALL_INFO, 1, 0, "  commScale_: %d\n", commScale_);
+    out_->debug(CALL_INFO, 1, 0, "  injectionScale_: %lf\n", injectionScale_);
+    out_->debug(CALL_INFO, 1, 0, "  rendezvousProtocol_: %lf\n", rendezvousProtocol_);
 
     AstraSim::LoggerFactory::init(loggingConfig_);
 
-    dbg_->debug(CALL_INFO, 1, 0, "AstraWorkload will create %d nics and systems\n", numNPUs_);
-
-    dbg_->debug(CALL_INFO, 1, 0, "Creating Remote Memory\n");
+    out_->debug(CALL_INFO, 1, 0, "Creating Remote Memory\n");
     Analytical::AnalyticalRemoteMemory* mem_ =
          new Analytical::AnalyticalRemoteMemory(memoryConfig_);
 
+    out_->debug(CALL_INFO, 1, 0, "AstraWorkload will create %d nics and systems\n", numNPUs_);
+
     for (int i = 0; i < numNPUs_; i++) {
 
-        dbg_->debug(CALL_INFO, 1, 0, "Loading nic %d\n", i);
+        out_->debug(CALL_INFO, 1, 0, "Loading nic %d\n", i);
         nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS, params, i) );
 
         if (!nics_.back()) {
             out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d\n", i);
         }
 
-        dbg_->debug(CALL_INFO, 1, 0, "Creating system %d\n", i);
+        out_->debug(CALL_INFO, 1, 0, "Creating system %d\n", i);
         systems_.push_back(new AstraSim::Sys(
                 i, workloadConfig_, commGroupConfig_,
                 systemConfig_, mem_, nics_.back()->getNetworkInterface(), logicalDims_,
@@ -86,7 +83,7 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
 
     }
 
-    dbg_->debug(CALL_INFO, 1, 0, "Done creating nic and systems\n");
+    out_->debug(CALL_INFO, 1, 0, "Done creating nic and systems\n");
 }
 
 AstraWorkload::AstraWorkload() : Component() {}
@@ -94,7 +91,6 @@ AstraWorkload::AstraWorkload() : Component() {}
 AstraWorkload::~AstraWorkload()
 {
     delete out_;
-    delete dbg_;
 }
 
 void AstraWorkload::init(unsigned int phase) {

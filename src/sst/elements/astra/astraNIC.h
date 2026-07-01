@@ -97,7 +97,8 @@ private:
     SST::Output* dbg_;
 
     // Event queues
-    std::queue<SST::Interfaces::SimpleNetwork::Request*> sendQueue; // Queue of events waiting to be sent on clock
+    std::queue<SST::Interfaces::SimpleNetwork::Request*> sendQueue; // Queue of packets waiting to be sent
+    std::queue<AstraEvent*> msgQueue_; // Queue of messages waiting to be sent, before they have been packetized
 
     // AstraSim simulator object
     AstraNetworkInterface *networkInterface_;
