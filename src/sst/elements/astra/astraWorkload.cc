@@ -30,11 +30,6 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     out_ = new Output("", 1, 0, Output::STDOUT);
     dbg_ = new Output("[\@f:\@l:\@p:\@t] ", 1, 0, Output::STDERR);
 
-    /* TODO - is it ok if just the NICs are primary?
-    registerAsPrimaryComponent();
-    primaryComponentDoNotEndSim();
-    */
-
     workloadConfig_        = params.find<std::string>("workloadConfig");
     systemConfig_          = params.find<std::string>("systemConfig");
     memoryConfig_          = params.find<std::string>("memoryConfig");
@@ -66,11 +61,6 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     dbg_->debug(CALL_INFO, 1, 0, "  injectionScale_: %lf\n", injectionScale_);
     dbg_->debug(CALL_INFO, 1, 0, "  rendezvousProtocol_: %lf\n", rendezvousProtocol_);
 
-    /*
-    clockHandler_ = new Clock::Handler<AstraWorkload, &AstraWorkload::clock>(this);
-    time_ = registerClock(freq_, clockHandler_);
-    */
-
     AstraSim::LoggerFactory::init(loggingConfig_);
 
     dbg_->debug(CALL_INFO, 1, 0, "AstraWorkload will create %d nics and systems\n", numNPUs_);
@@ -97,54 +87,34 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     }
 
     dbg_->debug(CALL_INFO, 1, 0, "Done creating nic and systems\n");
-    /*
-    for (int i = 0; i < numNPUs_; i++) {
-        linkControl_[i] = loadUserSubComponent<SST::Interfaces::SimpleNetwork>("linkControl" + std::to_string(i), ComponentInfo::SHARE_NONE, 1);
-    }
-    */
 }
-
-    void AstraWorkload::init(unsigned int phase) {
-        for (int i = 0; i < numNPUs_; i++) {
-            nics_[i]->init(phase);
-        }
-    }
-    void AstraWorkload::setup() {
-        for (int i = 0; i < numNPUs_; i++) {
-            nics_[i]->setup();
-        }
-
-        // Kick off ASTRA-sim
-        for (int i = 0; i < numNPUs_; i++) {
-            systems_[i]->workload->fire();
-        }
-    }
-    void AstraWorkload::complete(unsigned int phase) {
-        for (int i = 0; i < numNPUs_; i++) {
-            nics_[i]->complete(phase);
-        }
-    }
-    void AstraWorkload::finish() {
-        for (int i = 0; i < numNPUs_; i++) {
-            nics_[i]->finish();
-        }
-    }
-
 
 AstraWorkload::AstraWorkload() : Component() {}
-
-bool AstraWorkload::clock(SimTime_t cycle) {
-    return false;
-}
-
-
-SimTime_t AstraWorkload::getCurrentSimTimeNanoWrapper() {
-    return getCurrentSimTimeNano();
-}
 
 AstraWorkload::~AstraWorkload()
 {
     delete out_;
     delete dbg_;
+}
+
+void AstraWorkload::init(unsigned int phase) {
+	for (auto& nic : nics_)
+		nic->init(phase);
+}
+void AstraWorkload::setup() {
+	for (auto& nic : nics_)
+		nic->setup();
+
+    // Kick off ASTRA-sim
+    for (auto& system: systems_)
+        system->workload->fire();
+}
+void AstraWorkload::complete(unsigned int phase) {
+	for (auto& nic : nics_)
+		nic->complete(phase);
+}
+void AstraWorkload::finish() {
+	for (auto& nic : nics_)
+		nic->finish();
 }
 

@@ -63,25 +63,19 @@ public:
     )
 
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "nic", "Network interface(s). One per endpoint.", "SST::Astra::AstraNIC"} )
-
     SST_ELI_DOCUMENT_STATISTICS( )
-
     SST_ELI_DOCUMENT_PORTS( {"port%d", "Network ports", { "astra.AstraEvent" }} )
 
     AstraWorkload(SST::ComponentId_t id, SST::Params& params);
     AstraWorkload();
     ~AstraWorkload();
 
-    bool clock(SimTime_t cycle);
-
-    NotSerializable(SST::Astra::AstraWorkload)
-
-    SimTime_t getCurrentSimTimeNanoWrapper();
-
     void init(unsigned int phase) override;
     void setup() override;
     void complete(unsigned int phase) override;
     void finish() override;
+
+    NotSerializable(SST::Astra::AstraWorkload)
 
 private:
     SST::Output* out_;
@@ -102,14 +96,7 @@ private:
     std::vector<int> logicalDims_;
     std::vector<int> queuesPerDim_;
     std::vector<AstraSim::Sys*> systems_;
-
     std::vector<AstraNIC*> nics_;
-
-    TimeConverter time_;
-    Clock::HandlerBase* clockHandler_;
-
-
-    int parseTopo(const std::string&);
 
 };
 

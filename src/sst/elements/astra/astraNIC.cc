@@ -125,22 +125,23 @@ bool AstraNIC::handleRecv(int) {
         msgMap_[mk] = CallbackHolder{};
     }
 
-
     if (!isClocked_) {
         // TODO - is this needed? - Answer may depend on if we get a send or a recv and whether we already have the other side
         reregisterClock(freq_, clockHandler_);
         isClocked_ = true;
     }
+
     delete(ae);
     return true;
 }
 
-/*****************************************************************************/
-/*                             AstraNetworkAPI                               */
-/*****************************************************************************/
+/*********************************************************/
+/*                   AstraNetworkAPI                     */
+/*********************************************************/
 
-// These functions implement AstraSim::AstraNetworkAPI. AstraNetworkInterface
-// inherits from AstraNetworkAPI and serves as a thin layer so that we can
+// These functions implement AstraSim::AstraNetworkAPI.
+// AstraNetworkInterface inherits from AstraNetworkAPI and
+// serves as a thin layer so that we can
 // avoid multiple inheritance in this class (AstraNIC).
 
 AstraSim::timespec_t AstraNIC::sim_get_time() {
@@ -210,7 +211,6 @@ int AstraNIC::sim_recv(void* msg,
 
 }
 
-
 void AstraNIC::sim_schedule(AstraSim::timespec_t delta,
                 void (*fun_ptr)(void* fun_arg),
                 void* fun_arg) {
@@ -225,6 +225,9 @@ void AstraNIC::sim_schedule(AstraSim::timespec_t delta,
 void AstraNIC::sim_notify_finished() {
     //TODO - can we be sure that all sends and recieves are done when this is called? Need to investigate why ns3 frontend has that tracker
     assert(msgMap_.size() == 0);
+    if (msgMap_.size() != 0) {
+        out_->output(CALL_INFO, "WARNING: sim_notify_finished called with non-empty msgMap\n");
+    }
     primaryComponentOKToEndSim();
 }
 
