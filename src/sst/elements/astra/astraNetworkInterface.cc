@@ -15,6 +15,7 @@ int AstraNetworkInterface::sim_send(
         void (*msg_handler)(void* fun_arg),
         void* fun_arg)
 {
+    std::cout << "sim_send";
     return nic_.sim_send(msg, msg_size, type, dst, tag, request, msg_handler, fun_arg);
 }
 
@@ -27,6 +28,7 @@ int AstraNetworkInterface::sim_recv(void* msg,
         void (*msg_handler)(void* fun_arg),
         void* fun_arg)
 {
+    std::cout << "sim_recv";
     return nic_.sim_recv(msg, msg_size, type, src, tag, request, msg_handler, fun_arg);
 }
 

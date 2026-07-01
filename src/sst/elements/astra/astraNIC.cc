@@ -24,6 +24,7 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     freq_ = params.find<std::string>("frequency", "2.0GHz");
     clockHandler_ = new Clock::Handler<AstraNIC, &AstraNIC::tick>(this);
     registerClock(freq_, clockHandler_);
+    isClocked_ = true;
 
     // TODO: get from params?
     std::string portName = "port" + std::to_string(nicID_);
@@ -94,15 +95,13 @@ bool AstraNIC::tick(SimTime_t cycle) {
     }
 
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
-    return false;
+    //return false;
     //TODO - undo this
-    /*
     if (sendQueue.empty()) {
         disableClock = true;
         isClocked_ = false;
     }
     return disableClock;
-    */
 }
 
 int AstraNIC::sim_send(void* buffer,
@@ -114,7 +113,7 @@ int AstraNIC::sim_send(void* buffer,
 				 void (*msg_handler)(void* fun_arg),
 				 void* fun_arg)
 {
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Received send event from AstraNetworkInterface\n", nicID_);
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d sim_send %s\n", nicID_, MsgKey{nicID_, dst, tag}.to_string());
 
     auto ae = new SST::Astra::AstraEvent();
     ae->buffer_ = buffer; //TODO - copy? free original?
@@ -147,7 +146,6 @@ int AstraNIC::sim_recv(void* msg,
         AstraSim::sim_request* request,
         void (*msg_handler)(void* fun_arg),
         void* fun_arg) {
-    return 0;
 
     MsgKey mk{src, nicID_, tag};
 
@@ -156,12 +154,15 @@ int AstraNIC::sim_recv(void* msg,
     auto it = msgMap_.find(mk);
     if (it != msgMap_.end()) {
         //Send already completed
+        dbg_->debug(CALL_INFO, 1, 0, "nicID=%d: Option 4\n", nicID_);
         msg_handler(fun_arg);
         msgMap_.erase(it);
     } else{
         //Send not yet completed
+        dbg_->debug(CALL_INFO, 1, 0, "nicID=%d: Option 3\n", nicID_);
         msgMap_[mk] = CallbackHolder{msg_handler, fun_arg};
     }
+    return 0;
 
 }
 
@@ -169,6 +170,7 @@ int AstraNIC::sim_recv(void* msg,
 void AstraNIC::sim_schedule(AstraSim::timespec_t delta,
                 void (*fun_ptr)(void* fun_arg),
                 void* fun_arg) {
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d sim_schedule %s\n", nicID_);
     auto ae = new AstraEvent();
     ae->msg_handler_ = fun_ptr;
     ae->fun_arg_ = fun_arg;
@@ -183,6 +185,7 @@ void AstraNIC::sim_notify_finished() {
 
 
 void AstraNIC::handleSimSchedule(Event* ev) {
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleSimSchedule %s\n", nicID_);
     auto ae = static_cast<AstraEvent*>(ev);
     ae->msg_handler_(ae->fun_arg_);
     // The event should be delayed when it is put on the Link. We may call it immediately
@@ -192,22 +195,27 @@ void AstraNIC::handleSimSchedule(Event* ev) {
     }
 }
 
+// This is called when a send is recieved from merlin.
 bool AstraNIC::handleRecv(int) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
     AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
+
+    // Notify AstraSim::Sys that the send has completed
     ae->msg_handler_(ae->fun_arg_);
 
-    //TODO - remove undersores from ae elements I think
+    //TODO - remove undersores from AstraEvent elements I think
     MsgKey mk{ae->src_, ae->dst_, ae->tag_};
     auto it = msgMap_.find(mk);
     if (it != msgMap_.end()) {
         // Recv already posted
+        dbg_->debug(CALL_INFO, 1, 0, "nicID=%d: Option 2\n", nicID_);
         CallbackHolder& cb = it->second;
         cb.invoke();
         msgMap_.erase(it);
     } else {
         // Recv not yet posted
+        dbg_->debug(CALL_INFO, 1, 0, "nicID=%d: Option 1\n", nicID_);
         msgMap_[mk] = CallbackHolder{};
     }
 
@@ -216,6 +224,7 @@ bool AstraNIC::handleRecv(int) {
         // TODO - is this needed? - Answer may depend on if we get a send or a recv and whether we already have the other side
         reregisterClock(freq_, clockHandler_);
     }
+    delete(ae);
     return true;
 }
 
