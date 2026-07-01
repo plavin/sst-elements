@@ -63,8 +63,6 @@ public:
     void complete(unsigned int phase) override;
     void finish() override;
 
-    bool isClocked();
-
     // AstraNetworkAPI
     void sim_schedule(AstraSim::timespec_t delta,
             void (*fun_ptr)(void* fun_arg),
