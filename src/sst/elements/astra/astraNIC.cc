@@ -203,11 +203,11 @@ int AstraNIC::sim_recv(void* msg,
 
     auto it = msgMap_.find(mk);
     if (it != msgMap_.end()) {
-        //Send already completed
+        // Match Send already completed. Notify AstraSim that the recieve has completed.
         msg_handler(fun_arg);
         msgMap_.erase(it);
     } else{
-        //Send not yet completed
+        // Matching send not yet completed. Record that this recive has posted.
         msgMap_[mk] = CallbackHolder{msg_handler, fun_arg};
     }
     return 0;
@@ -226,8 +226,6 @@ void AstraNIC::sim_schedule(AstraSim::timespec_t delta,
 }
 
 void AstraNIC::sim_notify_finished() {
-    //TODO - can we be sure that all sends and recieves are done when this is called? Need to investigate why ns3 frontend has that tracker
-    assert(msgMap_.size() == 0);
     if (msgMap_.size() != 0) {
         out_->output(CALL_INFO, "WARNING: sim_notify_finished called with non-empty msgMap\n");
     }
