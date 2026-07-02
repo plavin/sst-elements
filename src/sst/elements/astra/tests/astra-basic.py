@@ -5,6 +5,7 @@
 import sst
 
 import os
+import sys
 import json
 import pathlib
 
@@ -21,7 +22,10 @@ system_file   = examples_dir / 'system/native_collectives/Ring_4chunks.json'
 memory_file   = examples_dir / 'remote_memory/analytical/no_memory_expansion.json'
 topo_file     = examples_dir / 'network/ns3/sample_16nodes_1D.json'
 
+DIR  = os.path.dirname(__file__)
 FILE = os.path.basename(__file__)
+
+sys.path.insert(0, DIR) # So the PlatformDefinition file can be found
 
 def checkFile(path):
     if not path.exists():
@@ -66,23 +70,19 @@ if __name__ == "__main__":
     topo, numNPUs = parseTopoFile(topo_file)
 
     workload = sst.Component('workload', 'astra.AstraWorkload')
-    workload.addParams(
-        {
-            "workloadConfig":        workload_file,
-            "systemConfig":          system_file,
-            "memoryConfig":          memory_file,
-            "logicalTopologyConfig": topo,
-            "commGroupConfig":      "empty",
-        }
-    )
+    workload.addParams({
+        "workloadConfig":        workload_file,
+        "systemConfig":          system_file,
+        "memoryConfig":          memory_file,
+        "logicalTopologyConfig": topo,
+        "commGroupConfig":      "empty",
+    })
 
     ep = AstraJob(0, 16, workload)
 
     # Merlin settings
     PlatformDefinition.loadPlatformFile("platform_file_dragon_eth128")
     PlatformDefinition.setCurrentPlatform("platform_dragon_eth128")
-    #PlatformDefinition.loadPlatformFile("platform_file_dragon_128")
-    #PlatformDefinition.setCurrentPlatform("platform_dragon_128")
 
     system = System()
     system.allocateNodes(ep, "linear")

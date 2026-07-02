@@ -12,30 +12,19 @@ class AstraEvent : public SST::Event {
 private:
 public:
     AstraEvent() : SST::Event() {}
-    void* buffer_; //TODO
     uint64_t count_;
-    int type_;
-    int src_; // TODO - src and dst also recorded in SimpleNetwork::Request
-    int dst_;
     int tag_;
-    AstraSim::sim_request* request_; //TODO
-    void (*msg_handler_)(void* fun_arg); //TODO
-    void* fun_arg_; //TODO
-
+    void (*msg_handler_)(void* fun_arg);
+    void* fun_arg_;
     bool tail_;
 
     void serialize_order(SST::Core::Serialization::serializer &ser)  override {
         SST::Event::serialize_order(ser);
-        //SST_SER(buffer_); //TODO
         SST_SER(count_);
-        SST_SER(type_);
-        SST_SER(src_);
-        SST_SER(dst_);
         SST_SER(tag_);
-        //SST_SER(request_); //TODO
-        //SST_SER(*msg_handler); //TODO
-        //SST_SER(fun_arg_); //TODO
-
+        SST_SER((uintptr_t)msg_handler_);
+        SST_SER((uintptr_t)fun_arg_);
+        SST_SER(tail_);
     }
 
     ImplementSerializable(SST::Astra::AstraEvent);

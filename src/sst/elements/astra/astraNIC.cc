@@ -173,6 +173,7 @@ AstraSim::timespec_t AstraNIC::sim_get_time() {
 }
 
 // Receive messages from AstraSim and packetize them
+// Currently, we ignore `buffer`, `type` and `request`.
 int AstraNIC::sim_send(void* buffer,
 				 uint64_t count,
 				 int type,
@@ -182,6 +183,7 @@ int AstraNIC::sim_send(void* buffer,
 				 void (*msg_handler)(void* fun_arg),
 				 void* fun_arg)
 {
+
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d sim_send\n", nicID_);
 
     int num_packets = (count / mtu_) + ((count % mtu_) != 0);
