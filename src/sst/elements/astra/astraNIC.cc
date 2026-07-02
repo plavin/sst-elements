@@ -24,8 +24,8 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     std::string lctype = params.find<std::string>("linkcontrol", "merlin.reorderlinkcontrol");
     Params lcparams;
     lcparams.insert("link_bw", params.find<std::string>("network_bw", "100Gb/s"));
-    lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "10kB"));
-    lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "10kB"));
+    lcparams.insert("input_buf_size", params.find<std::string>("network_input_buffer_size", "10kB"));
+    lcparams.insert("output_buf_size", params.find<std::string>("network_output_buffer_size", "10kB"));
 
     freq_ = params.find<std::string>("frequency", "2.0GHz");
     clockHandler_ = new Clock::Handler<AstraNIC, &AstraNIC::tick>(this);
@@ -148,8 +148,10 @@ bool AstraNIC::handleRecv(int) {
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
     recvQueue.push(req);
 
-    reregisterClock(freq_, clockHandler_);
-    isClocked_ = true;
+    if (!isClocked_) {
+        reregisterClock(freq_, clockHandler_);
+        isClocked_ = true;
+    }
 
     return true; // Keep this handler registered
 }
@@ -214,9 +216,10 @@ int AstraNIC::sim_send(void* buffer,
     }
 
     dbg_->debug(CALL_INFO, 1, 0, "Pushed %d packets\n", num_packets);
-
-    reregisterClock(freq_,clockHandler_);
-    isClocked_ = true;
+    if (!isClocked_) {
+        reregisterClock(freq_,clockHandler_);
+        isClocked_ = true;
+    }
     return 0;
 }
 
