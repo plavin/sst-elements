@@ -54,7 +54,6 @@ public:
 
     AstraNetworkInterface *getNetworkInterface();
 
-    bool tick(SimTime_t cycle);
     void handleSimSchedule(Event* ev);
     bool handleSend(int);
     bool handleRecv(int);
@@ -110,7 +109,6 @@ private:
     Clock::HandlerBase* clockHandler_;
     TimeConverter time_;
     int nicID_;
-    bool isClocked_;
 
     // Params
     int mtu_;

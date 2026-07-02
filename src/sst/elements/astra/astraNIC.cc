@@ -28,9 +28,6 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     lcparams.insert("output_buf_size", params.find<std::string>("network_output_buffer_size", "10kB"));
 
     freq_ = params.find<std::string>("frequency", "2.0GHz");
-    clockHandler_ = new Clock::Handler<AstraNIC, &AstraNIC::tick>(this);
-    registerClock(freq_, clockHandler_);
-    isClocked_ = true;
 
     // TODO: get from params?
     std::string portName = "port" + std::to_string(nicID_);
@@ -70,9 +67,13 @@ void AstraNIC::finish() {
     linkControl_->finish();
 }
 
-bool AstraNIC::tick(SimTime_t cycle) {
-    bool disableClock = false;
-
+void AstraNIC::handleSimSchedule(Event* ev) {
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleSimSchedule %s\n", nicID_);
+    auto ae = static_cast<AstraEvent*>(ev);
+    ae->msg_handler_(ae->fun_arg_);
+    // The event should be delayed when it is put on the Link. We may call it immediately
+}
+bool AstraNIC::handleSend(int) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Send queue size: %d\n", nicID_, sendQueue.size());
 
     //drain send queue
@@ -93,27 +94,6 @@ bool AstraNIC::tick(SimTime_t cycle) {
 
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
 
-    // TODO - continue to evaluate if this changes the timings. seems OK for now.
-    if (sendQueue.empty()) {
-        disableClock = true;
-        isClocked_ = false;
-    }
-    return disableClock;
-    //return false;
-}
-
-void AstraNIC::handleSimSchedule(Event* ev) {
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleSimSchedule %s\n", nicID_);
-    auto ae = static_cast<AstraEvent*>(ev);
-    ae->msg_handler_(ae->fun_arg_);
-    // The event should be delayed when it is put on the Link. We may call it immediately
-    if (!isClocked_) {
-        // TODO - is this needed? - only need to do this in the send/recv logic
-        reregisterClock(freq_, clockHandler_);
-        isClocked_ = true;
-    }
-}
-bool AstraNIC::handleSend(int) {
     return true;
 }
 
@@ -204,10 +184,7 @@ int AstraNIC::sim_send(void* buffer,
     }
 
     dbg_->debug(CALL_INFO, 1, 0, "Pushed %d packets\n", num_packets);
-    if (!isClocked_) {
-        reregisterClock(freq_,clockHandler_);
-        isClocked_ = true;
-    }
+    handleSend(0); // If the queue was empty, we need to make sure this gets called
     return 0;
 }
 
