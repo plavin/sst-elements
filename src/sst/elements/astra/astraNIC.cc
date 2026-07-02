@@ -17,15 +17,15 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     primaryComponentDoNotEndSim();
 
     // NIC Params
-    mtu_ = params.find<int>("mtu", "1500");
+    mtu_ = params.find<int>("mtu", "1500"); //bytes
 
     // Link params
     networkInterface_ = new AstraNetworkInterface(nicID_, *this);
-    std::string lctype = params.find<std::string>("linkcontrol", "merlin.linkcontrol");
+    std::string lctype = params.find<std::string>("linkcontrol", "merlin.reorderlinkcontrol");
     Params lcparams;
-    lcparams.insert("link_bw", params.find<std::string>("network_bw", "80GiB/s"));
-    lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "8KiB"));
-    lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "8KiB"));
+    lcparams.insert("link_bw", params.find<std::string>("network_bw", "100Gb/s"));
+    lcparams.insert("in_buf_size", params.find<std::string>("network_input_buffer_size", "10kB"));
+    lcparams.insert("out_buf_size", params.find<std::string>("network_output_buffer_size", "10kB"));
 
     freq_ = params.find<std::string>("frequency", "2.0GHz");
     clockHandler_ = new Clock::Handler<AstraNIC, &AstraNIC::tick>(this);
@@ -72,7 +72,6 @@ void AstraNIC::finish() {
 bool AstraNIC::tick(SimTime_t cycle) {
     bool disableClock = false;
 
-
     int recvCount = 0;
     while (!recvQueue.empty()) {
         SimpleNetwork::Request* req = recvQueue.front(); // TODO - do I need to limit how much can be done per cycle?
@@ -80,7 +79,7 @@ bool AstraNIC::tick(SimTime_t cycle) {
         AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
 
         // Notify AstraSim::Sys that the send has completed
-        if (req->tail) {
+        if (ae->tail_) {
             ae->msg_handler_(ae->fun_arg_);
 
             MsgKey mk{req->src, req->dest, ae->tag_};
@@ -97,9 +96,11 @@ bool AstraNIC::tick(SimTime_t cycle) {
         }
         delete(ae);
         delete(req);
+        recvCount++;
 
     }
 
+    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Recv %d requests\n", nicID_, recvCount);
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Send queue size: %d\n", nicID_, sendQueue.size());
 
     //drain send queue
@@ -126,6 +127,7 @@ bool AstraNIC::tick(SimTime_t cycle) {
         isClocked_ = false;
     }
     return disableClock;
+    //return false;
 }
 
 void AstraNIC::handleSimSchedule(Event* ev) {
@@ -134,27 +136,22 @@ void AstraNIC::handleSimSchedule(Event* ev) {
     ae->msg_handler_(ae->fun_arg_);
     // The event should be delayed when it is put on the Link. We may call it immediately
     if (!isClocked_) {
-        // TODO - is this needed?
+        // TODO - is this needed? - only need to do this in the send/recv logic
         reregisterClock(freq_, clockHandler_);
         isClocked_ = true;
     }
 }
 
 // Called when a packet is received
-// TODO put this in clock handler
 bool AstraNIC::handleRecv(int) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
     recvQueue.push(req);
 
+    reregisterClock(freq_, clockHandler_);
+    isClocked_ = true;
 
-    if (!isClocked_) {
-        // TODO - is this needed? - Answer may depend on if we get a send or a recv and whether we already have the other side
-        reregisterClock(freq_, clockHandler_);
-        isClocked_ = true;
-    }
-
-    return true; // TODO - what is this?
+    return true; // Keep this handler registered
 }
 
 /*********************************************************/
@@ -198,14 +195,16 @@ int AstraNIC::sim_send(void* buffer,
         if (i == (num_packets - 1)) {
             ae->msg_handler_ = msg_handler;
             ae->fun_arg_ = fun_arg;
+            ae->tail_ = true;
 
-            //req->size_in_bits = msg_size_rem * 8;
-            req->size_in_bits = 1;
-            req->tail = true;
+            //TODO -restore
+            req->size_in_bits = msg_size_rem * 8;
+            //req->size_in_bits = 1024;
+            assert(msg_size_rem > 0);
         } else {
-            //req->size_in_bits = mtu_ * 8;
-            req->size_in_bits = 1;
-            req->tail = false;
+            ae->tail_ = false;
+            req->size_in_bits = mtu_ * 8;
+            //req->size_in_bits = 128;
             msg_size_rem -= mtu_;
         }
 
@@ -221,6 +220,7 @@ int AstraNIC::sim_send(void* buffer,
     return 0;
 }
 
+// TODO put these in postedRecvQueue and process during `tick`
 int AstraNIC::sim_recv(void* msg,
         uint64_t msg_size,
         int type,

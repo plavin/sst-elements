@@ -22,6 +22,8 @@ public:
     void (*msg_handler_)(void* fun_arg); //TODO
     void* fun_arg_; //TODO
 
+    bool tail_;
+
     void serialize_order(SST::Core::Serialization::serializer &ser)  override {
         SST::Event::serialize_order(ser);
         //SST_SER(buffer_); //TODO
