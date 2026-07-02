@@ -58,7 +58,6 @@ class AstraJob(Job):
     def getName(self):
         return "AstraJob"
     def build(self, nID, extraKeys):
-        print(f"building {nID}")
         return (self._workload, f"port{nID}")
 
 if __name__ == "__main__":
@@ -80,9 +79,11 @@ if __name__ == "__main__":
     ep = AstraJob(0, 16, workload)
 
     # Merlin settings
-    PlatformDefinition.loadPlatformFile("platform_file_dragon_16")
-    PlatformDefinition.setCurrentPlatform("platform_dragon_16")
-    system = System()
+    PlatformDefinition.loadPlatformFile("platform_file_dragon_eth128")
+    PlatformDefinition.setCurrentPlatform("platform_dragon_eth128")
+    #PlatformDefinition.loadPlatformFile("platform_file_dragon_128")
+    #PlatformDefinition.setCurrentPlatform("platform_dragon_128")
 
+    system = System()
     system.allocateNodes(ep, "linear")
     system.build()

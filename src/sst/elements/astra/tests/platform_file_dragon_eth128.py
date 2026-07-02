@@ -1,15 +1,15 @@
 import sst
 from sst.merlin.base import *
 
-platdef = PlatformDefinition("platform_dragon_16")
+platdef = PlatformDefinition("platform_dragon_eth128")
 PlatformDefinition.registerPlatformDefinition(platdef)
 
 
 platdef.addParamSet("topology",{
     "hosts_per_router" : 4,
-    "routers_per_group" : 2,
+    "routers_per_group" : 8,
     "intergroup_links" : 4,
-    "num_groups" : 2,
+    "num_groups" : 4,
     "algorithm" : "adaptive-local",
     "link_latency" : "20ns"
 })
@@ -47,7 +47,8 @@ platdef.addParamSet("network_interface",{
 platdef.addClassType("network_interface","sst.merlin.interface.ReorderLinkControl")
 
 
-platdef_cm = PlatformDefinition.compose("platform_dragon_16_cm",[("platform_dragon_16","ALL")])
-platdef_cm.addParamSet("router",{"enable_congestion_management":True})
-platdef_cm.addClassType("topology","sst.merlin.topology.topoDragonFly")
-platdef_cm.addClassType("network_interface","sst.merlin.interface.ReorderLinkControl")
+
+#platdef_cm = PlatformDefinition.compose("platform_dragon_16_cm",[("platform_dragon_16","ALL")])
+platdef.addParamSet("router",{"enable_congestion_management":False})
+#platdef.addClassType("topology","sst.merlin.topology.topoDragonFly")
+#platdef.addClassType("network_interface","sst.merlin.interface.ReorderLinkControl")
