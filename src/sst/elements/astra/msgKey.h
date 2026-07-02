@@ -6,6 +6,7 @@
 
 using nid_t = int64_t;
 
+// Messages in AstraSim are uniquely defined by <src, dst, tag>
 class MsgKey {
 public:
     nid_t src;

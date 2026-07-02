@@ -37,8 +37,8 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     dbg_->debug(CALL_INFO, 1, 0, "  nicID_: %d\n", nicID);
     dbg_->debug(CALL_INFO, 1, 0, "  type: %s\n", lctype.c_str());
     dbg_->debug(CALL_INFO, 1, 0, "  portname: %s\n", portName.c_str());
-    linkControl_ = loadAnonymousSubComponent<SST::Interfaces::SimpleNetwork>(lctype, portName, 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, lcparams, 1);
 
+    linkControl_ = loadAnonymousSubComponent<SST::Interfaces::SimpleNetwork>(lctype, portName, 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, lcparams, 1);
     if (!linkControl_) out_->fatal(CALL_INFO, 1, "Failed to load linkcontroller\n");
     linkControl_->setNotifyOnSend(new SimpleNetwork::Handler<AstraNIC, &AstraNIC::handleSend>(this));
     linkControl_->setNotifyOnReceive(new SimpleNetwork::Handler<AstraNIC, &AstraNIC::handleRecv>(this));
@@ -71,12 +71,14 @@ void AstraNIC::handleSimSchedule(Event* ev) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleSimSchedule %s\n", nicID_);
     auto ae = static_cast<AstraEvent*>(ev);
     ae->msg_handler_(ae->fun_arg_);
-    // The event should be delayed when it is put on the Link. We may call it immediately
+    delete(ae);
 }
+
+// Push as many sends across the link as possible. Called by sim_send anytime a new message
+// is received and by the linkController anytime it sends a message to the network (setNotifyOnSend).
 bool AstraNIC::handleSend(int) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Send queue size: %d\n", nicID_, sendQueue.size());
 
-    //drain send queue
     int sendCount = 0;
     while(!sendQueue.empty()) {
         SimpleNetwork::Request* head = sendQueue.front();
@@ -94,10 +96,10 @@ bool AstraNIC::handleSend(int) {
 
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
 
-    return true;
+    return true; // Keep this handler registered
 }
 
-// Called when a packet is received
+// Called when a packet is received from the network
 bool AstraNIC::handleRecv(int) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
