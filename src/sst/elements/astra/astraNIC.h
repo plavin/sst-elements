@@ -56,6 +56,7 @@ public:
 
     bool tick(SimTime_t cycle);
     void handleSimSchedule(Event* ev);
+    bool handleSend(int);
     bool handleRecv(int);
 
     void init(unsigned int phase) override;

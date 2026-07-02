@@ -12,7 +12,6 @@ class AstraEvent : public SST::Event {
 private:
 public:
     AstraEvent() : SST::Event() {}
-    uint64_t count_;
     int tag_;
     void (*msg_handler_)(void* fun_arg);
     void* fun_arg_;
@@ -20,9 +19,8 @@ public:
 
     void serialize_order(SST::Core::Serialization::serializer &ser)  override {
         SST::Event::serialize_order(ser);
-        SST_SER(count_);
         SST_SER(tag_);
-        SST_SER((uintptr_t)msg_handler_);
+        SST_SER((uintptr_t)msg_handler_); //TODO - will this work?
         SST_SER((uintptr_t)fun_arg_);
         SST_SER(tail_);
     }

@@ -43,6 +43,7 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     linkControl_ = loadAnonymousSubComponent<SST::Interfaces::SimpleNetwork>(lctype, portName, 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, lcparams, 1);
 
     if (!linkControl_) out_->fatal(CALL_INFO, 1, "Failed to load linkcontroller\n");
+    linkControl_->setNotifyOnSend(new SimpleNetwork::Handler<AstraNIC, &AstraNIC::handleSend>(this));
     linkControl_->setNotifyOnReceive(new SimpleNetwork::Handler<AstraNIC, &AstraNIC::handleRecv>(this));
 
     selfLink_ = configureSelfLink("self", "1GHz" /* ns */, new Event::Handler<AstraNIC, &AstraNIC::handleSimSchedule>(this));
@@ -72,35 +73,6 @@ void AstraNIC::finish() {
 bool AstraNIC::tick(SimTime_t cycle) {
     bool disableClock = false;
 
-    int recvCount = 0;
-    while (!recvQueue.empty()) {
-        SimpleNetwork::Request* req = recvQueue.front(); // TODO - do I need to limit how much can be done per cycle?
-        recvQueue.pop();
-        AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
-
-        // Notify AstraSim::Sys that the send has completed
-        if (ae->tail_) {
-            ae->msg_handler_(ae->fun_arg_);
-
-            MsgKey mk{req->src, req->dest, ae->tag_};
-            auto it = msgMap_.find(mk);
-            if (it != msgMap_.end()) {
-                // Recv already posted
-                CallbackHolder& cb = it->second;
-                cb.invoke();
-                msgMap_.erase(it);
-            } else {
-                // Recv not yet posted
-                msgMap_[mk] = CallbackHolder{};
-            }
-        }
-        delete(ae);
-        delete(req);
-        recvCount++;
-
-    }
-
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Recv %d requests\n", nicID_, recvCount);
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Send queue size: %d\n", nicID_, sendQueue.size());
 
     //drain send queue
@@ -141,17 +113,36 @@ void AstraNIC::handleSimSchedule(Event* ev) {
         isClocked_ = true;
     }
 }
+bool AstraNIC::handleSend(int) {
+    return true;
+}
 
 // Called when a packet is received
 bool AstraNIC::handleRecv(int) {
     dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
-    recvQueue.push(req);
+    AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
 
-    if (!isClocked_) {
-        reregisterClock(freq_, clockHandler_);
-        isClocked_ = true;
+    // This is the end of a message
+    if (ae->tail_) {
+
+        // Notify AstraSim that the Send has completed
+        ae->msg_handler_(ae->fun_arg_);
+
+        MsgKey mk{req->src, req->dest, ae->tag_};
+        auto it = msgMap_.find(mk);
+        if (it != msgMap_.end()) {
+            // The matching Recv has already posted. Call it's handler and delete it.
+            CallbackHolder& cb = it->second;
+            cb.invoke();
+            msgMap_.erase(it);
+        } else {
+            // The matching Recv has not yet posted. Record that the send is finished.
+            msgMap_[mk] = CallbackHolder{};
+        }
     }
+    delete(ae);
+    delete(req);
 
     return true; // Keep this handler registered
 }
@@ -200,15 +191,10 @@ int AstraNIC::sim_send(void* buffer,
             ae->msg_handler_ = msg_handler;
             ae->fun_arg_ = fun_arg;
             ae->tail_ = true;
-
-            //TODO -restore
             req->size_in_bits = msg_size_rem * 8;
-            //req->size_in_bits = 1024;
-            assert(msg_size_rem > 0);
         } else {
             ae->tail_ = false;
             req->size_in_bits = mtu_ * 8;
-            //req->size_in_bits = 128;
             msg_size_rem -= mtu_;
         }
 
@@ -225,7 +211,6 @@ int AstraNIC::sim_send(void* buffer,
     return 0;
 }
 
-// TODO put these in postedRecvQueue and process during `tick`
 int AstraNIC::sim_recv(void* msg,
         uint64_t msg_size,
         int type,
