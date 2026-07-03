@@ -48,6 +48,10 @@ public:
     SST_ELI_DOCUMENT_PARAMS( { "mtu", "Maximum packet size in bytes", "1500"} )
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "linkcontrol", "Network interface"} )
     SST_ELI_DOCUMENT_PORTS( {"self", "Self link for scheduling sim_schedule calls", { "astra.AstraEvent" }} )
+    SST_ELI_DOCUMENT_STATISTICS(
+        {"messagesSent", "Total AstraSim messages sent", "messages", 1},
+        {"messagesReceived", "Total AstraSim messages received", "messages", 1},
+    )
 
     AstraNIC(ComponentId_t id, Params &params, int nicID);
     ~AstraNIC() { }
@@ -103,8 +107,6 @@ private:
     // AstraSim simulator object
     AstraNetworkInterface *networkInterface_;
 
-    std::string freq_;
-
     // Clocks
     Clock::HandlerBase* clockHandler_;
     TimeConverter time_;
@@ -117,6 +119,9 @@ private:
 
     // Holds track events so we know when to call recv msgHandlers
     std::unordered_map<MsgKey, CallbackHolder, MsgKeyHash> msgMap_;
+
+    Statistic<uint64_t>* statMessagesSent;
+    Statistic<uint64_t>* statMessagesReceived;
 
 }; // class AstraNIC
 } // namespace Astra

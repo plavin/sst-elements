@@ -87,3 +87,7 @@ if __name__ == "__main__":
     system = System()
     system.allocateNodes(ep, "linear")
     system.build()
+
+    sst.setStatisticOutput("sst.statOutputCSV", { "filepath" : "stats.csv", "separator" : "," } )
+    sst.setStatisticLoadLevel(2)
+    sst.enableAllStatisticsForComponentType("astra.AstraNIC")

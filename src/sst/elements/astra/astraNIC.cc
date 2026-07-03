@@ -27,8 +27,6 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     lcparams.insert("input_buf_size", params.find<std::string>("network_input_buffer_size", "10kB"));
     lcparams.insert("output_buf_size", params.find<std::string>("network_output_buffer_size", "10kB"));
 
-    freq_ = params.find<std::string>("frequency", "2.0GHz");
-
     // TODO: get from params?
     std::string portName = "port" + std::to_string(nicID_);
 
@@ -45,6 +43,9 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
 
     selfLink_ = configureSelfLink("self", "1GHz" /* ns */, new Event::Handler<AstraNIC, &AstraNIC::handleSimSchedule>(this));
     if (!selfLink_) out_->fatal(CALL_INFO, 1, "Failed to configure selfLink_\n");
+
+    statMessagesSent = registerStatistic<uint64_t>("messagesSent");
+    statMessagesReceived = registerStatistic<uint64_t>("messagesReceived");
 };
 
 AstraNetworkInterface* AstraNIC::getNetworkInterface() {
@@ -107,6 +108,8 @@ bool AstraNIC::handleRecv(int) {
 
     // This is the end of a message
     if (ae->tail_) {
+
+        statMessagesReceived->addData(1);
 
         // Notify AstraSim that the Send has completed
         ae->msg_handler_(ae->fun_arg_);
@@ -186,6 +189,8 @@ int AstraNIC::sim_send(void* buffer,
     }
 
     dbg_->debug(CALL_INFO, 1, 0, "Pushed %d packets\n", num_packets);
+
+    statMessagesSent->addData(1);
     handleSend(0); // If the queue was empty, we need to make sure this gets called
     return 0;
 }

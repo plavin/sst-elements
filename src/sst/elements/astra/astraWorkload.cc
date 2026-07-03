@@ -69,7 +69,7 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     for (int i = 0; i < numNPUs_; i++) {
 
         out_->debug(CALL_INFO, 1, 0, "Loading nic %d\n", i);
-        nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS, params, i) );
+        nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, params, i) );
 
         if (!nics_.back()) {
             out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d\n", i);
