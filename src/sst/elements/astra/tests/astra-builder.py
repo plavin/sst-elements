@@ -62,6 +62,8 @@ class AstraJob(Job):
     def getName(self):
         return "AstraJob"
     def build(self, nID, extraKeys):
+        nic = self._workload.setSubComponent("nic", "astra.AstraNIC", nID)
+        nic.addParams(extraKeys)
         return (self._workload, f"port{nID}")
 
 if __name__ == "__main__":

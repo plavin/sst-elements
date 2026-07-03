@@ -66,20 +66,42 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
 
     out_->debug(CALL_INFO, 1, 0, "AstraWorkload will create %d nics and systems\n", numNPUs_);
 
-    for (int i = 0; i < numNPUs_; i++) {
-
-        out_->debug(CALL_INFO, 1, 0, "Loading nic %d\n", i);
-        nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, params, i) );
-
-        if (!nics_.back()) {
-            out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d\n", i);
+    // First, see if the user loaded the NICs. If so, it is an error to load any number other than numNPU_ nics
+    // Please number them sequentially because I don't know what happens if you don't
+    SubComponentSlotInfo *lists = getSubComponentSlotInfo("nic");
+    if (lists) {
+        int foundNICs = 0;
+        for (int i = 0; i < lists->getMaxPopulatedSlotNumber()+1; i++) {
+            if (lists->isPopulated(i)) {
+                out_->flush();
+                foundNICs++;
+                nics_.push_back( lists->create<AstraNIC>(i, ComponentInfo::SHARE_PORTS, i) ); // TODO - AstraNIC needs its own ports
+                if (!nics_.back()) {
+                    out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d\n", i);
+                }
+            }
         }
+        if (numNPUs_ != foundNICs) {
+            out_->fatal(CALL_INFO, 1, "Expected %d nics, got %d\n", numNPUs_, foundNICs);
+        }
+    } else {
+        for (int i = 0; i < numNPUs_; i++) {
 
-        out_->debug(CALL_INFO, 1, 0, "Creating system %d\n", i);
+            out_->debug(CALL_INFO, 1, 0, "Loading nic %d\n", i);
+            nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS, params, i) );
+
+            if (!nics_.back()) {
+                out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d\n", i);
+            }
+        }
+    }
+
+    for (int i = 0; i < numNPUs_; ++i) {
         systems_.push_back(new AstraSim::Sys(
                 i, workloadConfig_, commGroupConfig_,
-                systemConfig_, mem_, nics_.back()->getNetworkInterface(), logicalDims_,
+                systemConfig_, mem_, nics_[i]->getNetworkInterface(), logicalDims_,
                 queuesPerDim_, injectionScale_, commScale_, rendezvousProtocol_));
+        out_->debug(CALL_INFO, 1, 0, "Creating system %d\n", i);
 
     }
 
