@@ -49,8 +49,8 @@ public:
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "linkcontrol", "Network interface"} )
     SST_ELI_DOCUMENT_PORTS( {"self", "Self link for scheduling sim_schedule calls", { "astra.AstraEvent" }} )
     SST_ELI_DOCUMENT_STATISTICS(
-        {"messagesSent", "Total AstraSim messages sent", "messages", 1},
-        {"messagesReceived", "Total AstraSim messages received", "messages", 1},
+        {"astra_messages_sent", "Total AstraSim messages sent", "messages", 1},
+        {"astra_messages_received", "Total AstraSim messages received", "messages", 1},
     )
 
     AstraNIC(ComponentId_t id, Params &params, int nicID);

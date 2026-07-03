@@ -44,8 +44,8 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     selfLink_ = configureSelfLink("self", "1GHz" /* ns */, new Event::Handler<AstraNIC, &AstraNIC::handleSimSchedule>(this));
     if (!selfLink_) out_->fatal(CALL_INFO, 1, "Failed to configure selfLink_\n");
 
-    statMessagesSent = registerStatistic<uint64_t>("messagesSent");
-    statMessagesReceived = registerStatistic<uint64_t>("messagesReceived");
+    statMessagesSent = registerStatistic<uint64_t>("astra_messages_sent");
+    statMessagesReceived = registerStatistic<uint64_t>("astra_messages_received");
 };
 
 AstraNetworkInterface* AstraNIC::getNetworkInterface() {
