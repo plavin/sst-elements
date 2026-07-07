@@ -98,7 +98,6 @@ private:
     SST::Interfaces::SimpleNetwork *linkControl_;
 
     SST::Output* out_;
-    SST::Output* dbg_;
 
     // Event queues
     std::queue<SST::Interfaces::SimpleNetwork::Request*> sendQueue; // Queue of packets waiting to be sent across the link

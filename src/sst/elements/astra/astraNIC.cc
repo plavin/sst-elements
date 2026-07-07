@@ -8,8 +8,7 @@ namespace SST { namespace Astra {
 
 AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(id), nicID_(nicID) {
 
-    out_ = new Output("", 1, 0, Output::STDOUT);
-    dbg_ = new Output("[\@f:\@l:\@p:\@t] ", 1, 0, Output::STDOUT);
+    out_ = new Output("[\@f:\@l:\@p:\@t] ", 1, 0, Output::STDOUT);
 
     // In Astra simulations, the only primary components are the AstraNICs. The AstraNetworkAPI will
     // notify us when the simulation can be ended.
@@ -31,10 +30,10 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     std::string portName = "port" + std::to_string(nicID_);
 
     lcparams.insert("port_name", portName);
-    dbg_->debug(CALL_INFO, 1, 0, "Loading linkController:\n");
-    dbg_->debug(CALL_INFO, 1, 0, "  nicID_: %d\n", nicID);
-    dbg_->debug(CALL_INFO, 1, 0, "  type: %s\n", lctype.c_str());
-    dbg_->debug(CALL_INFO, 1, 0, "  portname: %s\n", portName.c_str());
+    out_->debug(CALL_INFO, 1, 0, "Loading linkController:\n");
+    out_->debug(CALL_INFO, 1, 0, "  nicID_: %d\n", nicID);
+    out_->debug(CALL_INFO, 1, 0, "  type: %s\n", lctype.c_str());
+    out_->debug(CALL_INFO, 1, 0, "  portname: %s\n", portName.c_str());
 
     linkControl_ = loadAnonymousSubComponent<SST::Interfaces::SimpleNetwork>(lctype, portName, 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, lcparams, 1);
     if (!linkControl_) out_->fatal(CALL_INFO, 1, "Failed to load linkcontroller\n");
@@ -69,7 +68,7 @@ void AstraNIC::finish() {
 }
 
 void AstraNIC::handleSimSchedule(Event* ev) {
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleSimSchedule %s\n", nicID_);
+    out_->debug(CALL_INFO, 1, 0, "nicID=%d handleSimSchedule %s\n", nicID_);
     auto ae = static_cast<AstraEvent*>(ev);
     ae->msg_handler_(ae->fun_arg_);
     delete(ae);
@@ -78,16 +77,16 @@ void AstraNIC::handleSimSchedule(Event* ev) {
 // Push as many sends across the link as possible. Called by sim_send anytime a new message
 // is received and by the linkController anytime it sends a message to the network (setNotifyOnSend).
 bool AstraNIC::handleSend(int) {
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Send queue size: %d\n", nicID_, sendQueue.size());
+    out_->debug(CALL_INFO, 1, 0, "nicID=%d Send queue size: %d\n", nicID_, sendQueue.size());
 
     int sendCount = 0;
     while(!sendQueue.empty()) {
         SimpleNetwork::Request* head = sendQueue.front();
         if (!linkControl_->spaceToSend(0, head->size_in_bits)) {
-            dbg_->debug(CALL_INFO, 1, 0, "No space to send!\n");
+            out_->debug(CALL_INFO, 1, 0, "No space to send!\n");
             break;
         } else if (!linkControl_->send(head, 0)){
-            dbg_->debug(CALL_INFO, 1, 0, "Failed to send!\n");
+            out_->debug(CALL_INFO, 1, 0, "Failed to send!\n");
             break;
         } else {
             sendQueue.pop();
@@ -95,14 +94,14 @@ bool AstraNIC::handleSend(int) {
         }
     }
 
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
+    out_->debug(CALL_INFO, 1, 0, "nicID=%d Sent %d events\n", nicID_, sendCount);
 
     return true; // Keep this handler registered
 }
 
 // Called when a packet is received from the network
 bool AstraNIC::handleRecv(int) {
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
+    out_->debug(CALL_INFO, 1, 0, "nicID=%d handleRecv called\n", nicID_);
     SST::Interfaces::SimpleNetwork::Request* req = linkControl_->recv(0);
     AstraEvent* ae = static_cast<AstraEvent*>(req->takePayload());
 
@@ -160,7 +159,7 @@ int AstraNIC::sim_send(void* buffer,
 				 void* fun_arg)
 {
 
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d sim_send\n", nicID_);
+    out_->debug(CALL_INFO, 1, 0, "nicID=%d sim_send\n", nicID_);
 
     int num_packets = (count / mtu_) + ((count % mtu_) != 0);
     int msg_size_rem = count;
@@ -188,7 +187,7 @@ int AstraNIC::sim_send(void* buffer,
         sendQueue.push(req);
     }
 
-    dbg_->debug(CALL_INFO, 1, 0, "Pushed %d packets\n", num_packets);
+    out_->debug(CALL_INFO, 1, 0, "Pushed %d packets\n", num_packets);
 
     statMessagesSent->addData(1);
     handleSend(0); // If the queue was empty, we need to make sure this gets called
@@ -206,7 +205,7 @@ int AstraNIC::sim_recv(void* msg,
 
     MsgKey mk{src, nicID_, tag};
 
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d\n", nicID_);
+    out_->debug(CALL_INFO, 1, 0, "nicID=%d\n", nicID_);
 
     auto it = msgMap_.find(mk);
     if (it != msgMap_.end()) {
@@ -224,7 +223,7 @@ int AstraNIC::sim_recv(void* msg,
 void AstraNIC::sim_schedule(AstraSim::timespec_t delta,
                 void (*fun_ptr)(void* fun_arg),
                 void* fun_arg) {
-    dbg_->debug(CALL_INFO, 1, 0, "nicID=%d sim_schedule\n", nicID_);
+    out_->debug(CALL_INFO, 1, 0, "nicID=%d sim_schedule\n", nicID_);
     auto ae = new AstraEvent();
     ae->msg_handler_ = fun_ptr;
     ae->fun_arg_ = fun_arg;
