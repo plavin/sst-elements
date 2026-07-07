@@ -6,16 +6,7 @@ This element library connect ASTRA-sim to SST, allowing users to use network sim
 
 1. Download and install ASTRA-sim
 
-**Note: Ensure you have [our changes to the CMakeLists.txt](https://github.com/plavin/astra-sim/tree/cmake-install)**
-
-```
-cd astra-sim
-export ASTRA_INSTALL=$(pwd)/install
-mkdir build
-cd build
-cmake -DCMAKE_INSTALL_PREFIX=$ASTRA_INSTALL -DSPDLOG_INSTALL=1 ..
-make install
-```
+Instructions currently live on the intern SST wiki.
 
 2. Configure SST-Elements
 
