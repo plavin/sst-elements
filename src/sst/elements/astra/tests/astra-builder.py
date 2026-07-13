@@ -15,7 +15,13 @@ from sst.merlin.topology import *
 from sst.merlin.interface import *
 from sst.merlin.router import *
 
-astra_dir    = pathlib.Path('/home/prlavin/sst/sst-astra-2/astra-sim') # TODO - set from ASTRA_ROOT
+try:
+    as_dir = os.environ['ASTRA_SIM']
+except KeyError:
+    print('Error: Environment variables ASTRA_SIM not set')
+    sys.exit(1)
+
+astra_dir    = pathlib.Path(as_dir) # TODO - set from ASTRA_ROOT
 examples_dir  = astra_dir / 'examples'
 workload_file = examples_dir / 'workload/microbenchmarks/all_gather/16npus_1MB/all_gather'
 system_file   = examples_dir / 'system/native_collectives/Ring_4chunks.json'
