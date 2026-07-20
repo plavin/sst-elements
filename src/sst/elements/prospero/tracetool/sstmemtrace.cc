@@ -25,6 +25,11 @@
 #include <iostream>
 #include <inttypes.h>
 
+#include <fstream>
+#include <iomanip>
+
+#include <map>
+
 // Undo some Clang-specific changes possibly made by the libc++ bundled with
 // PinCRT
 #ifdef __LP64__
@@ -75,6 +80,21 @@ typedef struct {
 
 char** fileBuffers;
 threadRecord* thread_instr_id;
+
+struct BblInfo
+{
+    ADDRINT end;
+    long long id;
+
+    BblInfo() : end(-1), id(-1) {}
+    BblInfo(ADDRINT s, long long i) : end(s), id(i) {}
+};
+// Both of the following are protected by g_bblMapMutex
+std::map<ADDRINT, BblInfo> g_bblMap;
+long long g_bblId;
+PIN_RWMUTEX g_bblMapMutex;
+
+TLS_KEY g_bblCurrent;
 
 KNOB<string> KnobInsRoutine(KNOB_MODE_WRITEONCE, "pintool",
     "r", "", "Instrument only a specific routine (if not specified all instructions are instrumented");
@@ -137,10 +157,12 @@ VOID RecordMemRead(VOID * addr, UINT32 size, THREADID thr)
 
 	if (traceEnabled > 0) {
 		if(0 == trace_format) {
-			fprintf(trace[thr], "%llu R %llu %d\n",
+			long long *bblCur = static_cast<long long *>(PIN_GetThreadData(g_bblCurrent, thr));
+			fprintf(trace[thr], "%llu R %llu %d %lld\n",
 				(unsigned long long int) thread_instr_id[thr].insCount,
 				(unsigned long long int) ma_addr,
-				(int) size);
+				(int) size,
+				*bblCur);
 			thread_instr_id[thr].readCount++;
 		} else if (1 == trace_format || 2 == trace_format) {
 			copy(RECORD_BUFFER, &(thread_instr_id[thr].insCount), 0, sizeof(uint64_t) );
@@ -176,10 +198,12 @@ VOID RecordMemWrite(VOID * addr, UINT32 size, THREADID thr)
 
 	if (traceEnabled > 0) {
 		if(0 == trace_format) {
-			fprintf(trace[thr], "%llu W %llu %d\n",
+			long long *bblCur = static_cast<long long *>(PIN_GetThreadData(g_bblCurrent, thr));
+			fprintf(trace[thr], "%llu W %llu %d %lld\n",
 				(unsigned long long int) thread_instr_id[thr].insCount,
 				(unsigned long long int) ma_addr,
-				(int) size);
+				(int) size,
+				(long long) *bblCur);
 			thread_instr_id[thr].writeCount++;
 		} else if(1 == trace_format || 2 == trace_format) {
 			copy(RECORD_BUFFER, &(thread_instr_id[thr].insCount), 0, sizeof(uint64_t) );
@@ -304,16 +328,83 @@ VOID InstrumentSpecificRoutine(RTN rtn, VOID* v) {
 	}
 }
 
+VOID ThreadStart(THREADID tid, CONTEXT *ctx, INT32 flags, VOID *v) {
+	long long *bblCur = new long long(-1);
+	PIN_SetThreadData(g_bblCurrent, bblCur, tid);
+}
+
+VOID ThreadFini(THREADID tid, const CONTEXT *ctx, INT32 flags, VOID *v) {
+	long long *bblCur = static_cast<long long *>(PIN_GetThreadData(g_bblCurrent, tid));
+	delete bblCur;
+}
+
+VOID SetThreadBbl(ADDRINT start, THREADID tid) {
+	PIN_RWMutexReadLock(&g_bblMapMutex);
+	auto it = g_bblMap.find(start);
+	if (it != g_bblMap.end()) {
+		long long *bblCur = static_cast<long long *>(PIN_GetThreadData(g_bblCurrent, tid));
+		*bblCur = it->second.id;
+	} else {
+		printf("Error: BBL not found in map: 0x%lX\n", start);
+		exit(1);
+	}
+	PIN_RWMutexUnlock(&g_bblMapMutex);
+}
+
+VOID InstrumentBbl(BBL bbl) {
+	ADDRINT start = BBL_Address(bbl); // Same as INS_Address(BBL_InsHead(bbl))?
+	ADDRINT end = INS_Address(BBL_InsTail(bbl));
+
+	// If we do not find this start address, we add a new BblInfo to the struct
+	auto it = g_bblMap.find(start);
+	if (it == g_bblMap.end()) {
+		g_bblMap[start] = BblInfo(end, g_bblId++);
+	}
+
+	// Register callback to be called when this BBL is executed
+	BBL_InsertCall(bbl, IPOINT_BEFORE, (AFUNPTR)SetThreadBbl, IARG_ADDRINT, start, IARG_THREAD_ID, IARG_END);
+
+}
+
+
+
+// This runs once, when a new trace is identified by PIN.
+// We acquire the mutex once here, instead of inside the loop.
+VOID InstrumentSpecificTrace(TRACE tr, VOID* v) {
+
+	// Record BBL extents. Acquire the map lock once here, instead of in the loop
+	PIN_RWMutexWriteLock(&g_bblMapMutex);
+	for (BBL bbl = TRACE_BblHead(tr); bbl != TRACE_BblTail(tr); bbl = BBL_Next(bbl)) {
+		InstrumentBbl(bbl);
+	}
+	PIN_RWMutexUnlock(&g_bblMapMutex);
+
+}
+
 VOID Fini(INT32 code, VOID *v)
 {
     printf("PROSPERO: Tracing is complete, closing trace files...\n");
     std::cout << "PROSPERO: Main thread exists with " << thread_instr_id[0].insCount << " instructions" << std::endl;
 
     if( (0 == trace_format) || (1 == trace_format)) {
-	for(UINT32 i = 0; i < max_thread_count; ++i) {
-    		fclose(trace[i]);
-	}
+		for(UINT32 i = 0; i < max_thread_count; ++i) {
+			fclose(trace[i]);
+		}
     }
+
+	std::ofstream out("bbl-trace.txt");
+	if (!out) {
+		printf("Failed to open trace file\n");
+		exit(1);
+	}
+
+	out << "id start end" << std::endl;
+	for (const auto& entry : g_bblMap) {
+		out << std::dec << entry.second.id << " "
+			<< std::showbase << std::hex
+			<< entry.first << " "
+			<< entry.second.end << std::endl;
+	}
 
     printf("PROSPERO: Thread read entries:     %" PRIu64 "\n", thread_instr_id[0].readCount);
     printf("PROSPERO: Thread write entries:    %" PRIu64 "\n", thread_instr_id[0].writeCount);
@@ -337,8 +428,8 @@ INT32 Usage()
 
 int main(int argc, char *argv[])
 {
-    if (PIN_Init(argc, argv)) return Usage();
     PIN_InitSymbols();
+    if (PIN_Init(argc, argv)) return Usage();
 
     traceEnabled = KnobTraceEnabled.Value();
 
@@ -403,15 +494,15 @@ int main(int argc, char *argv[])
     // Thread zero is always started
     thread_instr_id[0].threadInit = 1;
 
-    //std::cout << "PROSPERO: Checking for specific routine instrumentation...";
+	PIN_RWMutexInit(&g_bblMapMutex);
+	g_bblId = 0;
 
-    //if(KnobInsRoutine.Value() == "") {
-//	std::cout << "not found, instrument all routines." << std::endl;
- //   	INS_AddInstrumentFunction(Instruction, 0);
-  //  } else {
-//	std::cout << "found, instrumenting: " << KnobInsRoutine.Value() << std::endl;
+	g_bblCurrent = PIN_CreateThreadDataKey(0);
+	PIN_AddThreadStartFunction(ThreadStart, 0);
+	PIN_AddThreadFiniFunction(ThreadFini, 0);
+
 	RTN_AddInstrumentFunction(InstrumentSpecificRoutine, 0);
- //   }
+    TRACE_AddInstrumentFunction(InstrumentSpecificTrace, 0);
 
     PIN_AddFiniFunction(Fini, 0);
 
