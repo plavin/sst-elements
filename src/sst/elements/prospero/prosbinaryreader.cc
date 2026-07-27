@@ -31,7 +31,7 @@ ProsperoBinaryTraceReader::ProsperoBinaryTraceReader( ComponentId_t id, Params& 
                     getName().c_str(), traceFile.c_str());
 	}
 
-	recordLength = sizeof(uint64_t) + sizeof(char) + sizeof(uint64_t) + sizeof(uint32_t);
+	recordLength = sizeof(uint64_t) + sizeof(char) + sizeof(uint64_t) + sizeof(uint32_t) + sizeof(uint32_t);
 	buffer = (char*) malloc(sizeof(char) * recordLength);
 }
 
@@ -58,6 +58,7 @@ ProsperoTraceEntry* ProsperoBinaryTraceReader::readNextEntry() {
 	uint64_t reqCycles  = 0;
 	char reqType = 'R';
 	uint32_t reqLength  = 0;
+	uint32_t unused = 0; // bblID
 
 	if(feof(traceInput)) {
 		return NULL;
@@ -69,7 +70,9 @@ ProsperoTraceEntry* ProsperoBinaryTraceReader::readNextEntry() {
 		copy((char*) &reqType,    buffer, sizeof(uint64_t), sizeof(char));
 		copy((char*) &reqAddress, buffer, sizeof(uint64_t) + sizeof(char), sizeof(uint64_t));
 		copy((char*) &reqLength,  buffer, sizeof(uint64_t) + sizeof(char) + sizeof(uint64_t), sizeof(uint32_t));
+		copy((char*) &unused,     buffer, sizeof(uint64_t) + sizeof(char) + sizeof(uint64_t) + sizeof(uint32_t), sizeof(uint32_t));
 
+		//printf("PAT  %" PRIu64 " %c %" PRIu64 " %" PRIu32 " %" PRIu32 "\n", reqCycles, reqType, reqAddress, reqLength, unused);
 		return new ProsperoTraceEntry(reqCycles, reqAddress,
 			reqLength,
 			(reqType == 'R' || reqType == 'r') ? READ : WRITE);

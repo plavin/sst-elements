@@ -44,11 +44,13 @@ ProsperoTraceEntry* ProsperoTextTraceReader::readNextEntry() {
 	uint64_t reqCycles  = 0;
 	char reqType = 'R';
 	uint32_t reqLength  = 0;
+	uint32_t unused = 0; //bblID
 
-	if(EOF == fscanf(traceInput, "%" PRIu64 " %c %" PRIu64 " %" PRIu32 "",
-		&reqCycles, &reqType, &reqAddress, &reqLength) ) {
+	if(EOF == fscanf(traceInput, "%" PRIu64 " %c %" PRIu64 " %" PRIu32 " %" PRIu32 "",
+		&reqCycles, &reqType, &reqAddress, &reqLength, &unused) ) {
 		return NULL;
 	} else {
+		//printf("PAT  %" PRIu64 " %c %" PRIu64 " %" PRIu32 " %" PRIu32 "\n", reqCycles, reqType, reqAddress, reqLength, unused);
 		return new ProsperoTraceEntry(reqCycles, reqAddress,
 			reqLength,
 			(reqType == 'R' || reqType == 'r') ? READ : WRITE);

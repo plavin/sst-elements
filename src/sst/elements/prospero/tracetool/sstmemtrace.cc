@@ -61,7 +61,7 @@ uint64_t nextFileTrip;
 const char READ_OPERATION_CHAR = 'R';
 const char WRITE_OPERATION_CHAR = 'W';
 
-char RECORD_BUFFER[ sizeof(uint64_t) + sizeof(uint64_t) + sizeof(uint32_t) + sizeof(char) ];
+char RECORD_BUFFER[ sizeof(uint64_t) + sizeof(uint64_t) + sizeof(uint32_t) + sizeof(char) + sizeof(uint32_t) ];
 
 // We have two file pointers, one for compressed traces and one for
 // "normal" (binary or text) traces
@@ -84,14 +84,14 @@ threadRecord* thread_instr_id;
 struct BblInfo
 {
     ADDRINT end;
-    long long id;
+    uint32_t id;
 
-    BblInfo() : end(-1), id(-1) {}
-    BblInfo(ADDRINT s, long long i) : end(s), id(i) {}
+    BblInfo() : end(0), id(0) {}
+    BblInfo(ADDRINT s, uint32_t i) : end(s), id(i) {}
 };
 // Both of the following are protected by g_bblMapMutex
 std::map<ADDRINT, BblInfo> g_bblMap;
-long long g_bblId;
+uint32_t g_bblId;
 PIN_RWMUTEX g_bblMapMutex;
 
 TLS_KEY g_bblCurrent;
@@ -156,9 +156,9 @@ VOID RecordMemRead(VOID * addr, UINT32 size, THREADID thr)
     PerformInstrumentCountCheck(thr);
 
 	if (traceEnabled > 0) {
+		uint32_t *bblCur = static_cast<uint32_t *>(PIN_GetThreadData(g_bblCurrent, thr));
 		if(0 == trace_format) {
-			long long *bblCur = static_cast<long long *>(PIN_GetThreadData(g_bblCurrent, thr));
-			fprintf(trace[thr], "%llu R %llu %d %lld\n",
+			fprintf(trace[thr], "%llu R %llu %d %" PRIu32"\n",
 				(unsigned long long int) thread_instr_id[thr].insCount,
 				(unsigned long long int) ma_addr,
 				(int) size,
@@ -169,10 +169,11 @@ VOID RecordMemRead(VOID * addr, UINT32 size, THREADID thr)
 			copy(RECORD_BUFFER, &READ_OPERATION_CHAR, sizeof(uint64_t), sizeof(char) );
 			copy(RECORD_BUFFER, &ma_addr, sizeof(uint64_t) + sizeof(char), sizeof(uint64_t) );
 			copy(RECORD_BUFFER, &size, sizeof(uint64_t) + sizeof(char) + sizeof(uint64_t), sizeof(uint32_t) );
+			copy(RECORD_BUFFER, bblCur, sizeof(uint64_t) + sizeof(char) + sizeof(uint64_t) + sizeof(uint32_t), sizeof(uint32_t) );
 
 			if(1 == trace_format) {
 				if(thr < max_thread_count) {
-						fwrite(RECORD_BUFFER, sizeof(uint64_t) + sizeof(uint64_t) + sizeof(uint32_t) + sizeof(char), 1, trace[thr]);
+						fwrite(RECORD_BUFFER, sizeof(RECORD_BUFFER), 1, trace[thr]);
 					thread_instr_id[thr].readCount++;
 				}
 			}
@@ -197,23 +198,24 @@ VOID RecordMemWrite(VOID * addr, UINT32 size, THREADID thr)
     UINT64 ma_addr = (UINT64) addr;
 
 	if (traceEnabled > 0) {
+		uint32_t *bblCur = static_cast<uint32_t *>(PIN_GetThreadData(g_bblCurrent, thr));
 		if(0 == trace_format) {
-			long long *bblCur = static_cast<long long *>(PIN_GetThreadData(g_bblCurrent, thr));
-			fprintf(trace[thr], "%llu W %llu %d %lld\n",
+			fprintf(trace[thr], "%llu R %llu %d %" PRIu32 "\n",
 				(unsigned long long int) thread_instr_id[thr].insCount,
 				(unsigned long long int) ma_addr,
 				(int) size,
-				(long long) *bblCur);
+				*bblCur);
 			thread_instr_id[thr].writeCount++;
 		} else if(1 == trace_format || 2 == trace_format) {
 			copy(RECORD_BUFFER, &(thread_instr_id[thr].insCount), 0, sizeof(uint64_t) );
 			copy(RECORD_BUFFER, &WRITE_OPERATION_CHAR, sizeof(uint64_t), sizeof(char) );
 			copy(RECORD_BUFFER, &ma_addr, sizeof(uint64_t) + sizeof(char), sizeof(uint64_t) );
 			copy(RECORD_BUFFER, &size, sizeof(uint64_t) + sizeof(char) + sizeof(uint64_t), sizeof(uint32_t) );
+			copy(RECORD_BUFFER, bblCur, sizeof(uint64_t) + sizeof(char) + sizeof(uint64_t) + sizeof(uint32_t), sizeof(uint32_t) );
 
 			if(1 == trace_format) {
 				if(thr < max_thread_count) {
-					fwrite(RECORD_BUFFER, sizeof(uint64_t) + sizeof(uint64_t) + sizeof(uint32_t) + sizeof(char), 1, trace[thr]);
+					fwrite(RECORD_BUFFER, sizeof(uint64_t) + sizeof(uint64_t) + sizeof(uint32_t) + sizeof(char) + sizeof(uint32_t), 1, trace[thr]);
 					thread_instr_id[thr].writeCount++;
 				}
 			}
@@ -329,12 +331,12 @@ VOID InstrumentSpecificRoutine(RTN rtn, VOID* v) {
 }
 
 VOID ThreadStart(THREADID tid, CONTEXT *ctx, INT32 flags, VOID *v) {
-	long long *bblCur = new long long(-1);
+	uint32_t *bblCur = new uint32_t(0);
 	PIN_SetThreadData(g_bblCurrent, bblCur, tid);
 }
 
 VOID ThreadFini(THREADID tid, const CONTEXT *ctx, INT32 flags, VOID *v) {
-	long long *bblCur = static_cast<long long *>(PIN_GetThreadData(g_bblCurrent, tid));
+	uint32_t *bblCur = static_cast<uint32_t *>(PIN_GetThreadData(g_bblCurrent, tid));
 	delete bblCur;
 }
 
@@ -342,7 +344,7 @@ VOID SetThreadBbl(ADDRINT start, THREADID tid) {
 	PIN_RWMutexReadLock(&g_bblMapMutex);
 	auto it = g_bblMap.find(start);
 	if (it != g_bblMap.end()) {
-		long long *bblCur = static_cast<long long *>(PIN_GetThreadData(g_bblCurrent, tid));
+		uint32_t *bblCur = static_cast<uint32_t *>(PIN_GetThreadData(g_bblCurrent, tid));
 		*bblCur = it->second.id;
 	} else {
 		printf("Error: BBL not found in map: 0x%lX\n", start);
@@ -392,7 +394,9 @@ VOID Fini(INT32 code, VOID *v)
 		}
     }
 
-	std::ofstream out("bbl-trace.txt");
+    char nameBuffer[PRINTF_BUFSIZ];
+	snprintf(nameBuffer, PRINTF_BUFSIZ, "%s-bbl.trace", KnobTraceFile.Value().c_str());
+	std::ofstream out(nameBuffer);
 	if (!out) {
 		printf("Failed to open trace file\n");
 		exit(1);
@@ -405,6 +409,7 @@ VOID Fini(INT32 code, VOID *v)
 			<< entry.first << " "
 			<< entry.second.end << std::endl;
 	}
+	out.close();
 
     printf("PROSPERO: Thread read entries:     %" PRIu64 "\n", thread_instr_id[0].readCount);
     printf("PROSPERO: Thread write entries:    %" PRIu64 "\n", thread_instr_id[0].writeCount);
@@ -449,31 +454,31 @@ int main(int argc, char *argv[])
     char nameBuffer[PRINTF_BUFSIZ];
 
     if(KnobTraceFormat.Value() == "text") {
-	printf("PROSPERO: Tracing will be recorded in text format.\n");
-	trace_format = 0;
+		printf("PROSPERO: Tracing will be recorded in text format.\n");
+		trace_format = 0;
 
-	for(UINT32 i = 0; i < max_thread_count; ++i) {
-		snprintf(nameBuffer, PRINTF_BUFSIZ, "%s-%lu-0.trace", KnobTraceFile.Value().c_str(), (unsigned long) i);
-		trace[i] = fopen(nameBuffer, "wt");
-	}
+		for(UINT32 i = 0; i < max_thread_count; ++i) {
+			snprintf(nameBuffer, PRINTF_BUFSIZ, "%s-%lu-0.trace", KnobTraceFile.Value().c_str(), (unsigned long) i);
+			trace[i] = fopen(nameBuffer, "wt");
+		}
 
-	for(UINT32 i = 0; i < max_thread_count; ++i) {
-		fileBuffers[i] = (char*) malloc(sizeof(char) * KnobFileBufferSize.Value());
-		setvbuf(trace[i], fileBuffers[i], _IOFBF, (size_t) KnobFileBufferSize.Value());
-	}
+		for(UINT32 i = 0; i < max_thread_count; ++i) {
+			fileBuffers[i] = (char*) malloc(sizeof(char) * KnobFileBufferSize.Value());
+			setvbuf(trace[i], fileBuffers[i], _IOFBF, (size_t) KnobFileBufferSize.Value());
+		}
     } else if(KnobTraceFormat.Value() == "binary") {
-	printf("PROSPERO: Tracing will be recorded in uncompressed binary format.\n");
-	trace_format = 1;
+		printf("PROSPERO: Tracing will be recorded in uncompressed binary format.\n");
+		trace_format = 1;
 
-	for(UINT32 i = 0; i < max_thread_count; ++i) {
-		snprintf(nameBuffer, PRINTF_BUFSIZ, "%s-%lu-0-bin.trace", KnobTraceFile.Value().c_str(), (unsigned long) i);
-		trace[i] = fopen(nameBuffer, "wb");
-	}
+		for(UINT32 i = 0; i < max_thread_count; ++i) {
+			snprintf(nameBuffer, PRINTF_BUFSIZ, "%s-%lu-0-bin.trace", KnobTraceFile.Value().c_str(), (unsigned long) i);
+			trace[i] = fopen(nameBuffer, "wb");
+		}
 
-	for(UINT32 i = 0; i < max_thread_count; ++i) {
-		fileBuffers[i] = (char*) malloc(sizeof(char) * KnobFileBufferSize.Value());
-		setvbuf(trace[i], fileBuffers[i], _IOFBF, (size_t) KnobFileBufferSize.Value());
-	}
+		for(UINT32 i = 0; i < max_thread_count; ++i) {
+			fileBuffers[i] = (char*) malloc(sizeof(char) * KnobFileBufferSize.Value());
+			setvbuf(trace[i], fileBuffers[i], _IOFBF, (size_t) KnobFileBufferSize.Value());
+		}
     } else {
 	std::cerr << "Error: Unknown trace format: " << KnobTraceFormat.Value() << "." << std::endl;
         exit(-1);
