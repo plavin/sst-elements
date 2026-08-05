@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import pathlib
+import argparse
 
 from sst.merlin.base import *
 from sst.merlin.endpoint import *
@@ -23,11 +24,8 @@ except KeyError:
 
 astra_dir    = pathlib.Path(as_dir) # TODO - set from ASTRA_ROOT
 examples_dir  = astra_dir / 'examples'
-workload_file = examples_dir / 'workload/microbenchmarks/all_gather/16npus_1MB/all_gather'
 system_file   = examples_dir / 'system/native_collectives/Ring_4chunks.json'
 memory_file   = examples_dir / 'remote_memory/analytical/no_memory_expansion.json'
-topo_file     = examples_dir / 'network/ns3/sample_16nodes_1D.json'
-
 
 DIR  = os.path.dirname(__file__)
 FILE = os.path.basename(__file__)
@@ -38,28 +36,18 @@ def checkFile(path):
     if not path.exists():
         raise FileNotFoundError(f"No such file: {path}")
 
-for f in [astra_dir, examples_dir, system_file, memory_file, topo_file]:
-    checkFile(f)
+def parseCommGroupConfig(comm_group_file):
+    setNPUs = set()
+    with open(comm_group_file, "r", encoding="utf-8") as f:
+        comm_group_dict = json.load(f)
+    for val in comm_group_dict.values():
+        setNPUs = setNPUs.union(set(val))
 
-def parseTopoFile(path):
-    print(f"{FILE}: parsing topo_file: {path}")
-    f = open(path, "r")
-    try:
-        data = json.load(f)
-        logical_dims = data.get("logical-dims", [])
-    finally:
-        f.close()
+    numNPUs = max(setNPUs) + 1
 
-    topo = ",".join(logical_dims)
-
-    numNPUs = 1
-    for i in topo.split(','):
-        numNPUs *= int(i)
-
-    topo = '[' + topo + ']'
-    print(f"{FILE}: Result: {topo}")
-
-    return topo, numNPUs
+    # Sanity check - make sure all values in [1..numNPUs-1] have been found
+    assert(set([*range(numNPUs)]) == setNPUs)
+    return comm_group_dict, numNPUs
 
 class AstraJob(Job):
     def __init__(self, job_id, size, workload):
@@ -69,23 +57,34 @@ class AstraJob(Job):
     def getName(self):
         return "AstraJob"
     def build(self, nID, extraKeys):
+        nic = self._workload.setSubComponent("nic", "astra.AstraNIC", nID)
+        nic.addParams(extraKeys)
         return (self._workload, f"port{nID}")
 
 if __name__ == "__main__":
 
-    # Create AstraSim component
-    topo, numNPUs = parseTopoFile(topo_file)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-w', '--workload', required=True)
+    args = parser.parse_args()
+    workload_file = pathlib.Path(args.workload)
+    comm_group_file = workload_file.with_suffix('.json')
 
+    for f in [astra_dir, examples_dir, system_file, memory_file, comm_group_file]:
+        checkFile(f)
+
+    _, numNPUs = parseCommGroupConfig(comm_group_file)
+
+    # Create AstraSim component
     workload = sst.Component('workload', 'astra.AstraWorkload')
     workload.addParams({
+        "numNPUs":               numNPUs, # Easier to compute in Python so we don't need to parse JSON in C++
         "workloadConfig":        workload_file,
         "systemConfig":          system_file,
         "memoryConfig":          memory_file,
-        "logicalTopologyConfig": topo,
-        "commGroupConfig":      "empty",
+        "commGroupConfig":       comm_group_file,
     })
 
-    ep = AstraJob(0, 16, workload)
+    ep = AstraJob(0, numNPUs, workload)
 
     # Merlin settings
     PlatformDefinition.loadPlatformFile("platform_file_dragon_eth128")
