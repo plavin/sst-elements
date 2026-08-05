@@ -27,6 +27,7 @@ workload_file = examples_dir / 'workload/microbenchmarks/all_gather/16npus_1MB/a
 system_file   = examples_dir / 'system/native_collectives/Ring_4chunks.json'
 memory_file   = examples_dir / 'remote_memory/analytical/no_memory_expansion.json'
 topo_file     = examples_dir / 'network/ns3/sample_16nodes_1D.json'
+#topo_file     = pathlib.Path('./16nodes.json')
 
 DIR  = os.path.dirname(__file__)
 FILE = os.path.basename(__file__)

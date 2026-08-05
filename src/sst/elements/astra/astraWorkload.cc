@@ -34,16 +34,14 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     memoryConfig_          = params.find<std::string>("memoryConfig");
     commGroupConfig_       = params.find<std::string>("commGroupConfig", "empty");
     loggingConfig_         = params.find<std::string>("loggingConfig", "empty");
+    numNPUs_               = params.find<int>("numNPUs");
     numQueuesPerDim_       = params.find<int>("numQueuesPerDim",1);
     commScale_             = params.find<double>("commScale", 1.0);
     injectionScale_        = params.find<double>("injectionScale", 1.0);
     rendezvousProtocol_    = params.find<bool>("rendezvousProtocol", false);
 
-    params.find_array<int>("logicalTopologyConfig", logicalDims_);
-    numNPUs_ = 1;
-    for (int x : logicalDims_) {
-        numNPUs_ *= x;
-    }
+    // TODO: What am I actually supposed to put in logicalDims?
+    logicalDims_.push_back(numNPUs_);
     queuesPerDim_ = std::vector<int>(logicalDims_.size(), numQueuesPerDim_);
 
     out_->debug(CALL_INFO, 1, 0, "AstraWorkload params\n");
@@ -51,12 +49,11 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     out_->debug(CALL_INFO, 1, 0, "  systemConfig_: %s\n", systemConfig_.c_str());
     out_->debug(CALL_INFO, 1, 0, "  memoryConfig_: %s\n", memoryConfig_.c_str());
     out_->debug(CALL_INFO, 1, 0, "  commGroupConfig_: %s\n", commGroupConfig_.c_str());
-    //out_->debug(CALL_INFO, 1, 0, "  logicalTopologyConfig_: %s\n", logicalTopologyConfig_.c_str());
     out_->debug(CALL_INFO, 1, 0, "  loggingConfig_: %s\n", loggingConfig_.c_str());
     out_->debug(CALL_INFO, 1, 0, "  numQueuesPerDim_: %d\n", numQueuesPerDim_);
     out_->debug(CALL_INFO, 1, 0, "  commScale_: %d\n", commScale_);
     out_->debug(CALL_INFO, 1, 0, "  injectionScale_: %lf\n", injectionScale_);
-    out_->debug(CALL_INFO, 1, 0, "  rendezvousProtocol_: %lf\n", rendezvousProtocol_);
+    out_->debug(CALL_INFO, 1, 0, "  rendezvousProtocol_: %d\n", rendezvousProtocol_);
 
     AstraSim::LoggerFactory::init(loggingConfig_);
 

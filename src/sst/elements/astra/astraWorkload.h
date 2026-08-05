@@ -50,6 +50,7 @@ public:
     )
 
 	SST_ELI_DOCUMENT_PARAMS(
+        {"numNPUs",               "Number of NPUs to model",               NULL    },
         {"workloadConfig",        "Workload config file",                  NULL    },
         {"systemConfig",          "System config file",                    NULL    },
         {"memoryConfig",          "Remote memory config file",             NULL    },
