@@ -40,7 +40,26 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
     injectionScale_        = params.find<double>("injectionScale", 1.0);
     rendezvousProtocol_    = params.find<bool>("rendezvousProtocol", false);
 
-    // TODO: What am I actually supposed to put in logicalDims?
+    // Users may optionally specify a logical mesh topology. Otherwise a ring will be assumed.
+    if (params.contains("logicalTopology")) {
+        if (params.is_value_array("logicalTopology")) {
+            params.find_array<int>("logicalTopology", logicalDims_);
+        } else {
+            out_->fatal(CALL_INFO, 1, "logicalTopology was given but is not a valid array\n");
+        }
+    } else {
+        logicalDims_.push_back(numNPUs_);
+    }
+
+    int prod = 1;
+    for (int d : logicalDims_) {
+        prod *= d;
+    }
+    if (prod != numNPUs_) {
+        out_->fatal(CALL_INFO, 1, "The product of the logicalTopology mesh dimensions must match numNPUs. Product=%d, numNPUs=%d\n", prod, numNPUs_);
+    }
+
+    params.find_array<int>("logicalTopologyConfig", logicalDims_);
     logicalDims_.push_back(numNPUs_);
     queuesPerDim_ = std::vector<int>(logicalDims_.size(), numQueuesPerDim_);
 

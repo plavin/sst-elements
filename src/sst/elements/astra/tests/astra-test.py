@@ -82,6 +82,7 @@ if __name__ == "__main__":
         "systemConfig":          system_file,
         "memoryConfig":          memory_file,
         "commGroupConfig":       comm_group_file,
+        #"logicalTopology":       [2, 2],
     })
 
     ep = AstraJob(0, numNPUs, workload)

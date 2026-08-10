@@ -50,17 +50,17 @@ public:
     )
 
 	SST_ELI_DOCUMENT_PARAMS(
-        {"numNPUs",               "Number of NPUs to model",               NULL    },
-        {"workloadConfig",        "Workload config file",                  NULL    },
-        {"systemConfig",          "System config file",                    NULL    },
-        {"memoryConfig",          "Remote memory config file",             NULL    },
-        {"commGroupConfig",       "Communicator group config file",        "empty" },
-        {"logicalTopologyConfig", "Logical topology config string",        NULL    },
-        {"loggingConfig",         "Logging config file",                   "empty" },
-        {"numQueuesPerDim",       "Number of queues per dimension",        "1"     },
-        {"commScale",             "Communication scale",                   "1.0"   },
-        {"injectionScale",        "Injection scale",                       "1.0"   },
-        {"rendezvousProtocol",    "Whether to enable rendezvous protocol", "false" },
+        {"numNPUs",            "Number of NPUs to model",                  NULL       },
+        {"workloadConfig",     "Workload config file",                     NULL       },
+        {"systemConfig",       "System config file",                       NULL       },
+        {"memoryConfig",       "Remote memory config file",                NULL       },
+        {"commGroupConfig",    "Communicator group config file",           "empty"    },
+        {"logicalTopology",    "Logical topology mesh dimensions (array)", "[numNPUs]"},
+        {"loggingConfig",      "Logging config file",                      "empty"    },
+        {"numQueuesPerDim",    "Number of queues per dimension",           "1"        },
+        {"commScale",          "Communication scale",                      "1.0"      },
+        {"injectionScale",     "Injection scale",                          "1.0"      },
+        {"rendezvousProtocol", "Whether to enable rendezvous protocol",    "false"    },
     )
 
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "nic", "Network interface(s). One per endpoint.", "SST::Astra::AstraNIC"} )
@@ -85,7 +85,6 @@ private:
     std::string systemConfig_;
     std::string memoryConfig_;
     std::string commGroupConfig_;
-    std::string logicalTopologyConfig_;
     std::string loggingConfig_;
     int numQueuesPerDim_;
     double commScale_;
