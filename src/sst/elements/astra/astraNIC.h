@@ -45,7 +45,11 @@ public:
             "Network interface for the AstraController",
             SST::Astra::AstraNIC)
     SST_ELI_REGISTER_SUBCOMPONENT_API(SST::Astra::AstraNIC, int)
-    SST_ELI_DOCUMENT_PARAMS( { "mtu", "Maximum packet size in bytes", "1500"} )
+    SST_ELI_DOCUMENT_PARAMS(
+            { "mtu", "Maximum packet size in bytes", "1500"},
+            { "trace", "Generate a trace of when sends and recieves post/finish", "false"},
+            { "trace_prefix", "Trace files will be named <trace_prefix>_<nicID>.txt", "astranic_trace_"}
+    )
     SST_ELI_DOCUMENT_SUBCOMPONENT_SLOTS( { "linkcontrol", "Network interface"} )
     SST_ELI_DOCUMENT_PORTS( {"self", "Self link for scheduling sim_schedule calls", { "astra.AstraEvent" }} )
     SST_ELI_DOCUMENT_STATISTICS(
@@ -113,6 +117,8 @@ private:
 
     // Params
     int mtu_;
+    bool trace_;
+    SST::Output* trace_file_;
 
     SST::Link* selfLink_;
 

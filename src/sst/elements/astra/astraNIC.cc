@@ -18,6 +18,15 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     // NIC Params
     mtu_ = params.find<int>("mtu", "1500"); //bytes
 
+    // Tracing params
+    trace_ = params.find<bool>("trace", "false");
+    if (trace_) {
+        std::string trace_prefix = params.find<std::string>("trace_prefix", "astranic_trace_");
+        std::string trace_filename = trace_prefix + std::to_string(nicID) + ".txt";
+        trace_file_ = new Output("@t ", 1, 0, SST::Output::output_location_t::FILE, trace_filename); 
+        trace_file_->output(CALL_INFO, "timestamp post/complete send/recv src dst tag");
+    }
+
     // Link params
     networkInterface_ = new AstraNetworkInterface(nicID_, *this);
     std::string lctype = params.find<std::string>("linkcontrol", "merlin.reorderlinkcontrol");
@@ -160,6 +169,10 @@ int AstraNIC::sim_send(void* buffer,
 {
 
     out_->debug(CALL_INFO, 1, 0, "nicID=%d sim_send\n", nicID_);
+
+    // timestamp 'post send' src dst tag
+    if (trace_)
+        trace_file_->output(CALL_INFO, "post send %d %d %d", nicID_, dst, tag);
 
     int num_packets = (count / mtu_) + ((count % mtu_) != 0);
     int msg_size_rem = count;
