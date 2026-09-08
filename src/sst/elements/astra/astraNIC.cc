@@ -23,8 +23,9 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     if (trace_) {
         std::string trace_prefix = params.find<std::string>("trace_prefix", "astranic_trace_");
         std::string trace_filename = trace_prefix + std::to_string(nicID) + ".txt";
-        trace_file_ = new Output("@t ", 1, 0, SST::Output::output_location_t::FILE, trace_filename); 
-        trace_file_->output(CALL_INFO, "timestamp post/complete send/recv src dst tag");
+        trace_file_ = new Output("", 1, 0, SST::Output::output_location_t::FILE, trace_filename);
+        trace_file_->output(CALL_INFO, "timestamp post_complete send_recv src dst tag\n");
+        trace_file_->setPrefix("@t ");
     }
 
     // Link params
@@ -122,10 +123,17 @@ bool AstraNIC::handleRecv(int) {
         // Notify AstraSim that the Send has completed
         ae->msg_handler_(ae->fun_arg_);
 
+        if (trace_)
+            trace_file_->output(CALL_INFO, "complete send %d %d %d\n", req->src, req->dest, ae->tag_);
+
         MsgKey mk{req->src, req->dest, ae->tag_};
         auto it = msgMap_.find(mk);
         if (it != msgMap_.end()) {
             // The matching Recv has already posted. Call it's handler and delete it.
+
+            if (trace_)
+                trace_file_->output(CALL_INFO, "complete recv %d %d %d\n", req->src, req->dest, ae->tag_);
+
             CallbackHolder& cb = it->second;
             cb.invoke();
             msgMap_.erase(it);
@@ -170,9 +178,8 @@ int AstraNIC::sim_send(void* buffer,
 
     out_->debug(CALL_INFO, 1, 0, "nicID=%d sim_send\n", nicID_);
 
-    // timestamp 'post send' src dst tag
     if (trace_)
-        trace_file_->output(CALL_INFO, "post send %d %d %d", nicID_, dst, tag);
+        trace_file_->output(CALL_INFO, "post send %d %d %d\n", nicID_, dst, tag);
 
     int num_packets = (count / mtu_) + ((count % mtu_) != 0);
     int msg_size_rem = count;
@@ -219,10 +226,14 @@ int AstraNIC::sim_recv(void* msg,
     MsgKey mk{src, nicID_, tag};
 
     out_->debug(CALL_INFO, 1, 0, "nicID=%d\n", nicID_);
+    if (trace_)
+        trace_file_->output(CALL_INFO, "post recv %d %d %d\n", src, nicID_, tag);
 
     auto it = msgMap_.find(mk);
     if (it != msgMap_.end()) {
         // Match Send already completed. Notify AstraSim that the recieve has completed.
+        if (trace_)
+            trace_file_->output(CALL_INFO, "complete recv %d %d %d\n", src, nicID_, tag);
         msg_handler(fun_arg);
         msgMap_.erase(it);
     } else{
