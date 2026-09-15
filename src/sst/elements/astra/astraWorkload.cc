@@ -91,9 +91,9 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
             if (lists->isPopulated(i)) {
                 out_->flush();
                 foundNICs++;
-                nics_.push_back( lists->create<AstraNIC>(i, ComponentInfo::SHARE_PORTS, i) ); // TODO - AstraNIC needs its own ports
+                nics_.push_back( lists->create<AstraNIC>(i, ComponentInfo::SHARE_PORTS, i) );
                 if (!nics_.back()) {
-                    out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d\n", i);
+                    out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d (user)\n", i);
                 }
             }
         }
@@ -107,7 +107,7 @@ AstraWorkload::AstraWorkload(ComponentId_t id, Params& params) : Component(id) {
             nics_.push_back( loadAnonymousSubComponent<AstraNIC>("astra.AstraNIC", "nic", i, ComponentInfo::SHARE_PORTS, params, i) );
 
             if (!nics_.back()) {
-                out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d\n", i);
+                out_->fatal(CALL_INFO, 1, "Failed to load AstraNIC %d (anon)\n", i);
             }
         }
     }

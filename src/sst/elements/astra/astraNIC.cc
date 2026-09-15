@@ -15,6 +15,15 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
     registerAsPrimaryComponent();
     primaryComponentDoNotEndSim();
 
+
+    bool found = true;
+    nicID_ = params.find<int>("id", found);
+    if (!found) {
+        out_->fatal(CALL_INFO, 1, "Missing NIC ID\n");
+    }
+
+    nicID = nicID_; // TODO - remove nicID in constructor
+
     // NIC Params
     mtu_ = params.find<int>("mtu", "1500"); //bytes
 
@@ -28,24 +37,29 @@ AstraNIC::AstraNIC(ComponentId_t id, Params &params, int nicID) : SubComponent(i
         trace_file_->setPrefix("@t ");
     }
 
-    // Link params
     networkInterface_ = new AstraNetworkInterface(nicID_, *this);
-    std::string lctype = params.find<std::string>("linkcontrol", "merlin.reorderlinkcontrol");
-    Params lcparams;
-    lcparams.insert("link_bw", params.find<std::string>("network_bw", "100Gb/s"));
-    lcparams.insert("input_buf_size", params.find<std::string>("network_input_buffer_size", "10kB"));
-    lcparams.insert("output_buf_size", params.find<std::string>("network_output_buffer_size", "10kB"));
 
-    // TODO: get from params?
-    std::string portName = "port" + std::to_string(nicID_);
+    linkControl_ = loadUserSubComponent<SST::Interfaces::SimpleNetwork>("linkcontrol", ComponentInfo::INSERT_STATS, 1); // 1 is the number of VNs
+    if (!linkControl_) {
 
-    lcparams.insert("port_name", portName);
-    out_->debug(CALL_INFO, 1, 0, "Loading linkController:\n");
-    out_->debug(CALL_INFO, 1, 0, "  nicID_: %d\n", nicID);
-    out_->debug(CALL_INFO, 1, 0, "  type: %s\n", lctype.c_str());
-    out_->debug(CALL_INFO, 1, 0, "  portname: %s\n", portName.c_str());
+        // Link params
+        std::string lctype = params.find<std::string>("linkcontrol", "merlin.reorderlinkcontrol"); //TODO - this param doesn't exist - need a linkcontrol_type param
+        Params lcparams;
+        lcparams.insert("link_bw", params.find<std::string>("network_bw", "100Gb/s"));
+        lcparams.insert("input_buf_size", params.find<std::string>("network_input_buffer_size", "10kB"));
+        lcparams.insert("output_buf_size", params.find<std::string>("network_output_buffer_size", "10kB"));
+        // TODO: get from params?
+        std::string portName = "port" + std::to_string(nicID_);
 
-    linkControl_ = loadAnonymousSubComponent<SST::Interfaces::SimpleNetwork>(lctype, portName, 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, lcparams, 1);
+        lcparams.insert("port_name", portName);
+        out_->debug(CALL_INFO, 1, 0, "Loading linkController:\n");
+        out_->debug(CALL_INFO, 1, 0, "  nicID_: %d\n", nicID);
+        out_->debug(CALL_INFO, 1, 0, "  type: %s\n", lctype.c_str());
+        out_->debug(CALL_INFO, 1, 0, "  portname: %s\n", portName.c_str());
+
+        linkControl_ = loadAnonymousSubComponent<SST::Interfaces::SimpleNetwork>(lctype, portName, 0, ComponentInfo::SHARE_PORTS | ComponentInfo::INSERT_STATS, lcparams, 1);
+    }
+
     if (!linkControl_) out_->fatal(CALL_INFO, 1, "Failed to load linkcontroller\n");
     linkControl_->setNotifyOnSend(new SimpleNetwork::Handler<AstraNIC, &AstraNIC::handleSend>(this));
     linkControl_->setNotifyOnReceive(new SimpleNetwork::Handler<AstraNIC, &AstraNIC::handleRecv>(this));

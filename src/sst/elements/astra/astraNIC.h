@@ -46,6 +46,7 @@ public:
             SST::Astra::AstraNIC)
     SST_ELI_REGISTER_SUBCOMPONENT_API(SST::Astra::AstraNIC, int)
     SST_ELI_DOCUMENT_PARAMS(
+            { "id", "Logical NIC ID"},
             { "mtu", "Maximum packet size in bytes", "1500"},
             { "trace", "Generate a trace of when sends and recieves post/finish", "false"},
             { "trace_prefix", "Trace files will be named <trace_prefix>_<nicID>.txt", "astranic_trace_"}
