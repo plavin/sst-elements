@@ -64,7 +64,7 @@ else:
 ## Processor Model
 ariel = sst.Component("A0", "ariel.ariel")
 ## ariel.addParams(AppArgs)
-ariel.addParams({
+ariel_params = {
    "verbose"             : "0",
    "frontend"            : frontend,
    "maxcorequeue"        : "256",
@@ -72,11 +72,15 @@ ariel.addParams({
    "pipetimeout"         : "0",
    "executable"          : app,
    "arielinterceptcalls" : "1",
-   "launchparamcount"    : 1,
-   "launchparam0"        : "-ifeellucky",
    "arielmode"           : "1",
    "corecount"           : corecount,
-})
+}
+
+if frontend != "ariel.frontend.dynamorio":
+    ariel_params["launchparamcount"] = 1
+    ariel_params["launchparam0"] = "-ifeellucky"
+
+ariel.addParams(ariel_params)
 
 ariel.setSubComponent("memmgr", "ariel.MemoryManagerSimple")
 

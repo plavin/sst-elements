@@ -25,7 +25,7 @@ l2PrefetchParams = {
         }
 
 ariel = sst.Component("a0", "ariel.ariel")
-ariel.addParams({
+ariel_params = {
         "verbose" : "0",
         "frontend" : frontend,
         "maxcorequeue" : "256",
@@ -33,9 +33,13 @@ ariel.addParams({
         "pipetimeout" : "0",
         "executable" : app,
         "arielmode" : "1",
-        "launchparamcount" : 1,
-        "launchparam0" : "-ifeellucky",
-        })
+        }
+
+if frontend != "ariel.frontend.dynamorio":
+    ariel_params["launchparamcount"] = 1
+    ariel_params["launchparam0"] = "-ifeellucky"
+
+ariel.addParams(ariel_params)
 
 memmgr = ariel.setSubComponent("memmgr", "ariel.MemoryManagerSimple")
 
@@ -96,4 +100,3 @@ l1cache.enableStatistics([
       "CacheHits",
       "CacheMisses"
 ])
-

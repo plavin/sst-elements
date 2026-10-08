@@ -136,7 +136,7 @@ else:
     frontend = "ariel.frontend." + str(frontend_type)
 
 ariel = sst.Component("A0", "ariel.ariel")
-ariel.addParams({
+ariel_params = {
     "verbose"             : "1",
     "frontend"            : frontend,
     "maxcorequeue"        : "256",
@@ -146,13 +146,17 @@ ariel.addParams({
     "executable"          : str(os.environ['OMP_EXE']),
     "appargcount"         : "0",
     "arielinterceptcalls" : "1",
-    "launchparamcount"    : 1,
-    "launchparam0"        : "-ifeellucky",
     "arielmode"           : "1",
     "corecount"           : groups * cores_per_group,
     "mallocmapfile"       : "malloc.txt",
     "clock"               : str(clock)
-})
+}
+
+if frontend != "ariel.frontend.dynamorio":
+    ariel_params["launchparamcount"] = 1
+    ariel_params["launchparam0"] = "-ifeellucky"
+
+ariel.addParams(ariel_params)
 
 memmgr = ariel.setSubComponent("memmgr", "ariel.MemoryManagerMalloc")
 memmgr.addParams({

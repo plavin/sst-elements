@@ -30,9 +30,11 @@ ariel_params = {
         "pipetimeout" : "0",
         "executable" : app,
         "arielmode" : "1",
-        "launchparamcount" : 1,
-        "launchparam0" : "-ifeellucky",
 }
+
+if frontend != "ariel.frontend.dynamorio":
+    ariel_params["launchparamcount"] = 1
+    ariel_params["launchparam0"] = "-ifeellucky"
 
 if "redirect_in" in sys.argv:
     ariel_params["appstdin"] = "input.txt"
@@ -120,4 +122,3 @@ l1cache.enableStatistics([
       "CacheHits",
       "CacheMisses"
 ])
-
