@@ -4,6 +4,7 @@ AC_DEFUN([SST_ariel_CONFIG], [
   sst_check_ariel="yes"
 
   SST_CHECK_PINTOOL([have_pin=1],[have_pin=0],[AC_MSG_ERROR([PIN was requested but not found])])
+  SST_CHECK_DYNAMORIO([have_dynamorio=1],[have_dynamorio=0],[AC_MSG_ERROR([DynamoRIO was requested but not found])])
 
   SST_CHECK_PTRACE_SET_TRACER()
   SST_CHECK_SHM()

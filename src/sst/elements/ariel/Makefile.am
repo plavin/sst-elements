@@ -60,6 +60,7 @@ EXTRA_DIST = \
 	mpi/mpilauncher.cc \
 	mpi/fakepin.cc \
 	frontend/pin3/fesimple.cc \
+	frontend/dynamorio/fedynamorio.cc \
 	frontend/simple/fesimple.cc \
 	frontend/simple/examples/multicore.py \
 	frontend/simple/examples/stream/Makefile \
@@ -89,10 +90,14 @@ EXTRA_DIST = \
 	frontend/simple/examples/stream/tests/refFiles/test_Ariel_runstreamSt_epa.out \
 	tests/testsuite_default_Ariel.py \
 	tests/testsuite_testio_Ariel.py \
+	tests/testsuite_dynamorio_Ariel.py \
 	tests/testsuite_mpi_Ariel.py \
 	tests/testopenMP/ompmybarrier/ompmybarrier.c \
 	tests/testopenMP/ompmybarrier/Makefile \
-	tests/testMPI/Makefile
+	tests/testMPI/Makefile \
+	tests/testDynamoRIO/Makefile \
+	tests/testDynamoRIO/dyntrace_threads.c \
+	tests/testDynamoRIO/dyntrace_test.py
 
 libariel_la_LDFLAGS = = \
 	-module \
@@ -115,6 +120,12 @@ libariel_la_SOURCES += frontend/pin3/pin3frontend.h \
 endif # HAVE_PIN3
 endif # HAVE_PINTOOL
 
+if HAVE_DYNAMORIO
+AM_CPPFLAGS += $(DYNAMORIO_CPPFLAGS)
+libariel_la_SOURCES += frontend/dynamorio/dynamoriofrontend.h \
+		       frontend/dynamorio/dynamoriofrontend.cc
+endif # HAVE_DYNAMORIO
+
 libariel_la_SOURCES += frontend/epa/epafrontend.h \
 		       frontend/epa/epafrontend.cc
 
@@ -123,6 +134,7 @@ libariel_la_CPPFLAGS = \
 	-DARIEL_TRACE_LIB=$(libdir)/sst \
 	-DARIEL_TOOL_DIR="$(libexecdir)" \
 	-DPINTOOL_EXECUTABLE="$(PINTOOL_RUNTIME)" \
+	-DDYNAMORIO_EXECUTABLE="$(DYNAMORIO_RUN)" \
 	-DMPILAUNCHER_EXECUTABLE="$(CURDIR)/mpi/mpilauncher" \
 	$(AM_CPPFLAGS) \
 	$(CPPFLAGS)
@@ -135,6 +147,23 @@ nobase_sst_HEADERS = \
 	api/arielapi.h
 
 libexec_PROGRAMS =
+
+if HAVE_DYNAMORIO
+all-local: fedynamorio.so
+
+fedynamorio.so : fedynamorio.o
+	$(CXX) -shared -fPIC -o fedynamorio.so fedynamorio.o \
+	    $(DYNAMORIO_LDFLAGS) -ldynamorio -ldrmgr -ldrreg -ldl
+
+fedynamorio.o : $(top_srcdir)/src/sst/elements/ariel/frontend/dynamorio/fedynamorio.cc
+	$(CXX) $(AM_CXXFLAGS) $(CXXFLAGS) $(AM_CPPFLAGS) $(CPPFLAGS) \
+	    -I$(top_srcdir)/src/sst/elements/ariel \
+	    -DLINUX -DARM_64 -fPIC -O2 -c $(top_srcdir)/src/sst/elements/ariel/frontend/dynamorio/fedynamorio.cc
+
+install-exec-local:
+	$(MKDIR_P) $(libexecdir)
+	$(INSTALL) fedynamorio.so $(libexecdir)/fedynamorio.so
+endif # HAVE_DYNAMORIO
 
 if !SST_COMPILE_OSX
 
