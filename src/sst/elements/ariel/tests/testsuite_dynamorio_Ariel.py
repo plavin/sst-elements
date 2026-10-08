@@ -169,3 +169,65 @@ class testcase_Ariel_DynamoRIO(SSTTestCase):
             grep_result = os.system(cmd) != 0
             self.assertTrue(grep_result,
                             "Output file {0} contains the word 'FATAL'".format(outfile))
+
+            self._verify_testio_outputs(testio_dir, outfile, errfile, args)
+
+    def _file_contains(self, filename, strings):
+        with open(filename, 'r') as file:
+            lines = file.readlines()
+            for s in strings:
+                self.assertTrue(s in lines, "Output {0} does not contain expected line {1}".format(filename, s))
+
+    def _verify_testio_outputs(self, testio_dir, outfile, errfile, args):
+        default_testio_stdout = ["STDOUT: This is the default output of the testio program.\n"]
+        default_testio_stderr = ["STDERR: This is the default output of the testio program.\n"]
+        redirect_testio_stdout = [
+            "STDOUT: This file is used to test Ariel IO redirection functionality.\n",
+            "STDOUT: This is the second line in the file.\n",
+        ]
+        redirect_testio_stderr = [
+            "STDERR: This file is used to test Ariel IO redirection functionality.\n",
+            "STDERR: This is the second line in the file.\n",
+        ]
+
+        args_list = args.split()
+
+        if "redirect_out" not in args_list and "append_redirect_out" not in args_list:
+            if "redirect_in" in args:
+                self._file_contains(outfile, redirect_testio_stdout)
+            else:
+                self._file_contains(outfile, default_testio_stdout)
+
+        if "redirect_err" not in args_list and "append_redirect_err" not in args_list:
+            if "redirect_in" in args:
+                self._file_contains(errfile, redirect_testio_stderr)
+            else:
+                self._file_contains(errfile, default_testio_stderr)
+
+        gold_stdout = ""
+        gold_stderr = ""
+        if "redirect_out" in args_list:
+            if "redirect_in" in args:
+                gold_stdout = "{0}/ref/redirect-in_stdout.txt".format(testio_dir)
+            else:
+                gold_stdout = "{0}/ref/default-in_stdout.txt".format(testio_dir)
+
+        if "redirect_err" in args_list:
+            if "redirect_in" in args:
+                gold_stderr = "{0}/ref/redirect-in_stderr.txt".format(testio_dir)
+            else:
+                gold_stderr = "{0}/ref/default-in_stderr.txt".format(testio_dir)
+
+        if "append_redirect_out" in args_list:
+            gold_stdout = "{0}/ref/default-in_appendstdout.txt".format(testio_dir)
+
+        if "append_redirect_err" in args_list:
+            gold_stderr = "{0}/ref/default-in_appendstderr.txt".format(testio_dir)
+
+        if "redirect_out" in args_list or "append_redirect_out" in args_list:
+            with open(gold_stdout, 'r') as gold:
+                self._file_contains("{0}/app_stdout.txt".format(testio_dir), gold.readlines())
+
+        if "redirect_err" in args_list or "append_redirect_err" in args_list:
+            with open(gold_stderr, 'r') as gold:
+                self._file_contains("{0}/app_stderr.txt".format(testio_dir), gold.readlines())

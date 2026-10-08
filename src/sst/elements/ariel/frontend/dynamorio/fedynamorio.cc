@@ -14,9 +14,11 @@
 // distribution.
 
 #include "dr_api.h"
+#include "dr_ir_decode.h"
 #include "drmgr.h"
 #include "drreg.h"
 #include "drutil.h"
+#include "dr_os_utils.h"
 
 #include <sst/core/interprocess/shmchild.h>
 #include "ariel_shmem.h"
@@ -76,17 +78,53 @@ get_thread_state(void* drcontext)
 }
 
 static void
-emit_instruction_marker(uint32_t core_idx, ArielShmemCmd_t marker, app_pc pc)
+classify_instruction(instr_t* ins, uint32_t* inst_class, uint32_t* simd_elem_count)
+{
+    *inst_class = ARIEL_INST_UNKNOWN;
+    *simd_elem_count = 1;
+
+    int opcode = instr_get_opcode(ins);
+    const char* opname = decode_opcode_name(opcode);
+    if ( opname == NULL ) return;
+
+    size_t len = strlen(opname);
+    if ( len < 2 ) return;
+
+    const char* suffix = opname + (len - 2);
+    if ( strcmp(suffix, "pd") == 0 || strcmp(suffix, "PD") == 0 ) {
+        *inst_class = ARIEL_INST_DP_FP;
+        *simd_elem_count = 2;
+    }
+    else if ( strcmp(suffix, "ps") == 0 || strcmp(suffix, "PS") == 0 ) {
+        *inst_class = ARIEL_INST_SP_FP;
+        *simd_elem_count = 4;
+    }
+    else if ( strcmp(suffix, "sd") == 0 || strcmp(suffix, "SD") == 0 ) {
+        *inst_class = ARIEL_INST_DP_FP;
+        *simd_elem_count = 1;
+    }
+    else if ( strcmp(suffix, "ss") == 0 || strcmp(suffix, "SS") == 0 ) {
+        *inst_class = ARIEL_INST_SP_FP;
+        *simd_elem_count = 1;
+    }
+}
+
+static void
+emit_instruction_marker(uint32_t core_idx, ArielShmemCmd_t marker, app_pc pc,
+    uint32_t inst_class, uint32_t simd_elem_count)
 {
     ArielCommand ac;
     memset(&ac, 0, sizeof(ac));
     ac.command = marker;
     ac.instPtr = (uint64_t)pc;
+    ac.inst.instClass = inst_class;
+    ac.inst.simdElemCount = simd_elem_count;
     tunnel->writeMessage(core_idx, ac);
 }
 
 static void
-emit_memory_ref(uint32_t core_idx, app_pc pc, app_pc addr, uint32_t size, bool is_write)
+emit_memory_ref(uint32_t core_idx, app_pc pc, app_pc addr, uint32_t size, bool is_write,
+    uint32_t inst_class, uint32_t simd_elem_count)
 {
     ArielCommand ac;
     memset(&ac, 0, sizeof(ac));
@@ -94,10 +132,12 @@ emit_memory_ref(uint32_t core_idx, app_pc pc, app_pc addr, uint32_t size, bool i
     ac.instPtr = (uint64_t)pc;
     ac.inst.addr = (uint64_t)addr;
     ac.inst.size = size;
-    ac.inst.instClass = 0;
-    ac.inst.simdElemCount = 1;
-    if ( write_payload ) {
+    ac.inst.instClass = inst_class;
+    ac.inst.simdElemCount = simd_elem_count;
+    if ( is_write && write_payload ) {
         ac.inst.size = (size > ARIEL_MAX_PAYLOAD_SIZE) ? ARIEL_MAX_PAYLOAD_SIZE : size;
+        size_t bytes_read = 0;
+        dr_safe_read((const void*)addr, ac.inst.size, &ac.inst.payload[0], &bytes_read);
     }
     tunnel->writeMessage(core_idx, ac);
 }
@@ -173,12 +213,12 @@ event_thread_exit(void* drcontext)
 }
 
 static void
-record_instruction_start(app_pc pc)
+record_instruction_start(app_pc pc, uint32_t inst_class, uint32_t simd_elem_count)
 {
     void* drcontext = dr_get_current_drcontext();
     thread_state_t* st = get_thread_state(drcontext);
     if ( st == NULL || !st->emit ) return;
-    emit_instruction_marker(st->core_idx, ARIEL_START_INSTRUCTION, pc);
+    emit_instruction_marker(st->core_idx, ARIEL_START_INSTRUCTION, pc, inst_class, simd_elem_count);
 }
 
 static void
@@ -187,30 +227,30 @@ record_instruction_end(app_pc pc)
     void* drcontext = dr_get_current_drcontext();
     thread_state_t* st = get_thread_state(drcontext);
     if ( st == NULL || !st->emit ) return;
-    emit_instruction_marker(st->core_idx, ARIEL_END_INSTRUCTION, pc);
+    emit_instruction_marker(st->core_idx, ARIEL_END_INSTRUCTION, pc, ARIEL_INST_UNKNOWN, 1);
 }
 
 static void
-record_memory_read(app_pc pc, app_pc addr, uint32_t size)
+record_memory_read(app_pc pc, app_pc addr, uint32_t size, uint32_t inst_class, uint32_t simd_elem_count)
 {
     void* drcontext = dr_get_current_drcontext();
     thread_state_t* st = get_thread_state(drcontext);
     if ( st == NULL || !st->emit ) return;
-    emit_memory_ref(st->core_idx, pc, addr, size, false);
+    emit_memory_ref(st->core_idx, pc, addr, size, false, inst_class, simd_elem_count);
 }
 
 static void
-record_memory_write(app_pc pc, app_pc addr, uint32_t size)
+record_memory_write(app_pc pc, app_pc addr, uint32_t size, uint32_t inst_class, uint32_t simd_elem_count)
 {
     void* drcontext = dr_get_current_drcontext();
     thread_state_t* st = get_thread_state(drcontext);
     if ( st == NULL || !st->emit ) return;
-    emit_memory_ref(st->core_idx, pc, addr, size, true);
+    emit_memory_ref(st->core_idx, pc, addr, size, true, inst_class, simd_elem_count);
 }
 
 static bool
 insert_memref_call(void* drcontext, instrlist_t* bb, instr_t* where, instr_t* instr_operands,
-    opnd_t ref, bool is_write)
+    opnd_t ref, bool is_write, uint32_t inst_class, uint32_t simd_elem_count)
 {
     reg_id_t reg_addr = DR_REG_NULL;
     reg_id_t reg_tmp  = DR_REG_NULL;
@@ -235,10 +275,12 @@ insert_memref_call(void* drcontext, instrlist_t* bb, instr_t* where, instr_t* in
 
     dr_insert_clean_call(drcontext, bb, where,
         (void*)(is_write ? record_memory_write : record_memory_read),
-        false, 3,
+        false, 5,
         OPND_CREATE_INTPTR((ptr_int_t)instr_get_app_pc(instr_operands)),
         opnd_create_reg(reg_addr),
-        OPND_CREATE_INT32(sz));
+        OPND_CREATE_INT32(sz),
+        OPND_CREATE_INT32(inst_class),
+        OPND_CREATE_INT32(simd_elem_count));
 
     drreg_unreserve_register(drcontext, bb, where, reg_tmp);
     drreg_unreserve_register(drcontext, bb, where, reg_addr);
@@ -272,26 +314,32 @@ event_app_instruction(void* drcontext, void* tag, instrlist_t* bb, instr_t* wher
     instr_t* instr_operands = drmgr_orig_app_instr_for_operands(drcontext);
     if ( instr_operands == NULL ) return DR_EMIT_DEFAULT;
 
+    uint32_t inst_class = ARIEL_INST_UNKNOWN;
+    uint32_t simd_elem_count = 1;
+    classify_instruction(instr_operands, &inst_class, &simd_elem_count);
+    app_pc pc = instr_get_app_pc(instr_operands);
+
     if ( !instr_reads_memory(instr_operands) && !instr_writes_memory(instr_operands) ) {
         return DR_EMIT_DEFAULT;
     }
 
-    app_pc pc = instr_get_app_pc(instr_operands);
-    dr_insert_clean_call(drcontext, bb, where, (void*)record_instruction_start, false, 1,
-        OPND_CREATE_INTPTR((ptr_int_t)pc));
+    dr_insert_clean_call(drcontext, bb, where, (void*)record_instruction_start, false, 3,
+        OPND_CREATE_INTPTR((ptr_int_t)pc),
+        OPND_CREATE_INT32(inst_class),
+        OPND_CREATE_INT32(simd_elem_count));
 
     int i;
     for ( i = 0; i < instr_num_srcs(instr_operands); ++i ) {
         const opnd_t src = instr_get_src(instr_operands, i);
         if ( opnd_is_memory_reference(src) ) {
-            insert_memref_call(drcontext, bb, where, instr_operands, src, false);
+            insert_memref_call(drcontext, bb, where, instr_operands, src, false, inst_class, simd_elem_count);
         }
     }
 
     for ( i = 0; i < instr_num_dsts(instr_operands); ++i ) {
         const opnd_t dst = instr_get_dst(instr_operands, i);
         if ( opnd_is_memory_reference(dst) ) {
-            insert_memref_call(drcontext, bb, where, instr_operands, dst, true);
+            insert_memref_call(drcontext, bb, where, instr_operands, dst, true, inst_class, simd_elem_count);
         }
     }
 
