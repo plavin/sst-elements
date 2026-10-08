@@ -19,7 +19,7 @@
 #include <sst/core/sst_config.h>
 #include <sst/core/component.h>
 #include <sst/core/params.h>
-#include <sst/core/interprocess/mmapparent.h>
+#include <sst/core/interprocess/shmparent.h>
 
 #include <stdint.h>
 #include <unistd.h>
@@ -54,7 +54,7 @@ public:
     void emergencyShutdown() override;
 
 private:
-    SST::Core::Interprocess::MMAPParent<ArielTunnel>* tunnelmgr;
+    SST::Core::Interprocess::SHMParent<ArielTunnel>* tunnelmgr;
 
     std::string applauncher;
     uint32_t launch_param_count;

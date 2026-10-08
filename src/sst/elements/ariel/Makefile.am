@@ -134,7 +134,7 @@ libariel_la_CPPFLAGS = \
 	-DARIEL_TRACE_LIB=$(libdir)/sst \
 	-DARIEL_TOOL_DIR="$(libexecdir)" \
 	-DPINTOOL_EXECUTABLE="$(PINTOOL_RUNTIME)" \
-	-DDYNAMORIO_EXECUTABLE="$(DYNAMORIO_RUN)" \
+	-DDYNAMORIO_EXECUTABLE=\"$(DYNAMORIO_RUN)\" \
 	-DMPILAUNCHER_EXECUTABLE="$(CURDIR)/mpi/mpilauncher" \
 	$(AM_CPPFLAGS) \
 	$(CPPFLAGS)
@@ -153,7 +153,10 @@ all-local: fedynamorio.so
 
 fedynamorio.so : fedynamorio.o
 	$(CXX) -shared -fPIC -o fedynamorio.so fedynamorio.o \
-	    $(DYNAMORIO_LDFLAGS) -ldynamorio -ldrmgr -ldrreg -ldl
+	    $(DYNAMORIO_LDFLAGS) \
+	    -Wl,-rpath,$(DYNAMORIO_DIR)/lib64/release \
+	    -Wl,-rpath,$(DYNAMORIO_DIR)/ext/lib64/release \
+	    -ldynamorio -ldrmgr -ldrreg -ldrutil -ldl
 
 fedynamorio.o : $(top_srcdir)/src/sst/elements/ariel/frontend/dynamorio/fedynamorio.cc
 	$(CXX) $(AM_CXXFLAGS) $(CXXFLAGS) $(AM_CPPFLAGS) $(CPPFLAGS) \

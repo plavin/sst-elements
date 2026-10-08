@@ -48,7 +48,7 @@ DynamoRIOFrontend::DynamoRIOFrontend(ComponentId_t id, Params& params, uint32_t 
     parseCommonSubComponentParams(params);
     parseDynamoRIOParams(params);
 
-    tunnelmgr = new SST::Core::Interprocess::MMAPParent<ArielTunnel>(id, core_count, maxCoreQueueLen);
+    tunnelmgr = new SST::Core::Interprocess::SHMParent<ArielTunnel>(id, core_count, maxCoreQueueLen);
     std::string shmem_region_name = tunnelmgr->getRegionName();
     tunnel                        = tunnelmgr->getTunnel();
     output->verbose(CALL_INFO, 1, 0, "Base pipe name: %s\n", shmem_region_name.c_str());
@@ -114,21 +114,21 @@ DynamoRIOFrontend::forkChildProcess(const char* app, char** args, std::map<std::
 
     if ( "" != redirect_info.stdin_file ) {
         if ( !freopen(redirect_info.stdin_file.c_str(), "r", stdin) ) {
-            output->fatal(CALL_INFO, 1, 0, "Failed to redirect stdin\n");
+            output->fatal(CALL_INFO, 1, "Failed to redirect stdin\n");
         }
     }
     if ( "" != redirect_info.stdout_file ) {
         std::string mode = "w+";
         if ( redirect_info.stdoutappend ) mode = "a+";
         if ( !freopen(redirect_info.stdout_file.c_str(), mode.c_str(), stdout) ) {
-            output->fatal(CALL_INFO, 1, 0, "Failed to redirect stdout\n");
+            output->fatal(CALL_INFO, 1, "Failed to redirect stdout\n");
         }
     }
     if ( "" != redirect_info.stderr_file ) {
         std::string mode = "w+";
         if ( redirect_info.stderrappend ) mode = "a+";
         if ( !freopen(redirect_info.stderr_file.c_str(), mode.c_str(), stderr) ) {
-            output->fatal(CALL_INFO, 1, 0, "Failed to redirect stderr\n");
+            output->fatal(CALL_INFO, 1, "Failed to redirect stderr\n");
         }
     }
 
