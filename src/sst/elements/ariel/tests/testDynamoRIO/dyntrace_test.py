@@ -65,5 +65,10 @@ mem_link = sst.Link("mem_bus_link")
 mem_link.connect((bus, "lowlink0", "50ps"), (memctrl, "highlink", "50ps"))
 
 sst.setStatisticLoadLevel(1)
-sst.setStatisticOutput("sst.statOutputConsole")
-ariel.enableStatistics(["instruction_count", "read_requests", "write_requests"])
+sst.setStatisticOutput("sst.statoutputtxt")
+sst.setStatisticOutputOptions({"filepath": "stats.csv"})
+
+if hasattr(sst, "enableAllStatsForAllComponents"):
+    sst.enableAllStatsForAllComponents()
+else:
+    sst.enableAllStatisticsForAllComponents()
