@@ -44,6 +44,7 @@ static int         tls_idx;
 static void*       mapping_lock;
 static uint32_t    max_cores          = 1;
 static uint32_t    next_core_id       = 0;
+static uint32_t    dropped_threads    = 0;
 static bool        write_payload      = false;
 static ArielTunnelDR* tunnel_manager  = NULL;
 static ArielTunnel*   tunnel          = NULL;
@@ -51,20 +52,21 @@ static ArielTunnel*   tunnel          = NULL;
 static dr_emit_flags_t event_app_instruction(void* drcontext, void* tag, instrlist_t* bb,
     instr_t* where, bool for_trace, bool translating, void* user_data);
 
-static uint32_t
-get_or_assign_core(void)
+static bool
+get_or_assign_core(uint32_t* assigned)
 {
-    uint32_t assigned = 0;
+    bool ok = true;
     dr_mutex_lock(mapping_lock);
     if ( next_core_id >= max_cores ) {
-        dr_mutex_unlock(mapping_lock);
-        dr_printf("SSTARIEL-DR: thread count exceeded configured Ariel corecount (%u)\n", max_cores);
-        dr_abort();
+        dropped_threads++;
+        ok = false;
     }
-    assigned = next_core_id;
-    next_core_id++;
+    else {
+        *assigned = next_core_id;
+        next_core_id++;
+    }
     dr_mutex_unlock(mapping_lock);
-    return assigned;
+    return ok;
 }
 
 static inline thread_state_t*
@@ -103,6 +105,10 @@ emit_memory_ref(uint32_t core_idx, app_pc pc, app_pc addr, uint32_t size, bool i
 static void
 event_exit(void)
 {
+    if ( dropped_threads > 0 ) {
+        dr_printf("SSTARIEL-DR: dropped %u thread(s) due to core-count limit\n", dropped_threads);
+    }
+
     if ( tunnel != NULL ) {
         ArielCommand ac;
         memset(&ac, 0, sizeof(ac));
@@ -135,9 +141,22 @@ static void
 event_thread_init(void* drcontext)
 {
     thread_state_t* st = (thread_state_t*)dr_thread_alloc(drcontext, sizeof(thread_state_t));
-    st->core_idx       = get_or_assign_core();
-    st->emit           = true;
+    st->core_idx       = 0;
+    st->emit           = false;
+
+    uint32_t assigned_core = 0;
+    if ( get_or_assign_core(&assigned_core) ) {
+        st->core_idx = assigned_core;
+        st->emit     = true;
+    }
+    else {
+        dr_printf("SSTARIEL-DR: dropping thread %d (configured cores=%u, dropped=%u)\n",
+            dr_get_thread_id(drcontext), max_cores, dropped_threads);
+    }
+
     drmgr_set_tls_field(drcontext, tls_idx, st);
+
+    if ( !st->emit ) return;
 
     ArielCommand ac;
     memset(&ac, 0, sizeof(ac));
@@ -154,32 +173,36 @@ event_thread_exit(void* drcontext)
 }
 
 static void
-record_instruction_start(void* drcontext, app_pc pc)
+record_instruction_start(app_pc pc)
 {
+    void* drcontext = dr_get_current_drcontext();
     thread_state_t* st = get_thread_state(drcontext);
     if ( st == NULL || !st->emit ) return;
     emit_instruction_marker(st->core_idx, ARIEL_START_INSTRUCTION, pc);
 }
 
 static void
-record_instruction_end(void* drcontext, app_pc pc)
+record_instruction_end(app_pc pc)
 {
+    void* drcontext = dr_get_current_drcontext();
     thread_state_t* st = get_thread_state(drcontext);
     if ( st == NULL || !st->emit ) return;
     emit_instruction_marker(st->core_idx, ARIEL_END_INSTRUCTION, pc);
 }
 
 static void
-record_memory_read(void* drcontext, app_pc pc, app_pc addr, uint32_t size)
+record_memory_read(app_pc pc, app_pc addr, uint32_t size)
 {
+    void* drcontext = dr_get_current_drcontext();
     thread_state_t* st = get_thread_state(drcontext);
     if ( st == NULL || !st->emit ) return;
     emit_memory_ref(st->core_idx, pc, addr, size, false);
 }
 
 static void
-record_memory_write(void* drcontext, app_pc pc, app_pc addr, uint32_t size)
+record_memory_write(app_pc pc, app_pc addr, uint32_t size)
 {
+    void* drcontext = dr_get_current_drcontext();
     thread_state_t* st = get_thread_state(drcontext);
     if ( st == NULL || !st->emit ) return;
     emit_memory_ref(st->core_idx, pc, addr, size, true);
@@ -332,8 +355,4 @@ dr_client_main(client_id_t id, int argc, const char* argv[])
     drmgr_register_thread_init_event(event_thread_init);
     drmgr_register_thread_exit_event(event_thread_exit);
     if ( !drmgr_register_bb_instrumentation_event(NULL, event_app_instruction, NULL) ) dr_abort();
-
-    dr_printf(
-        "SSTARIEL-DR: initialized with %u cores, write_payload=%d\n",
-        max_cores, write_payload ? 1 : 0);
 }

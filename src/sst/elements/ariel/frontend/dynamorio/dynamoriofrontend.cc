@@ -88,8 +88,15 @@ DynamoRIOFrontend::forkChildProcess(const char* app, char** args, std::map<std::
         pid_t check = waitpid(the_child, &pstat, WNOHANG);
         if ( check > 0 ) {
             if ( WIFEXITED(pstat) == true ) {
-                output->fatal(CALL_INFO, 1,
-                    "Launching trace child failed! Child exited with status %d\n", WEXITSTATUS(pstat));
+                const int code = WEXITSTATUS(pstat);
+                if ( code == 0 ) {
+                    output->verbose(CALL_INFO, 1, 0,
+                        "Trace child exited with status 0 during startup window; continuing.\n");
+                }
+                else {
+                    output->fatal(CALL_INFO, 1,
+                        "Launching trace child failed! Child exited with status %d\n", code);
+                }
             }
             else if ( WIFSIGNALED(pstat) == true ) {
                 output->fatal(CALL_INFO, 1,
