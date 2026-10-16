@@ -14,6 +14,7 @@
 // distribution.
 
 #include <sst_config.h>
+#include <cstdio>
 #include <sstream>
 #include <sst/core/unitAlgebra.h>
 #include <sst/core/timeConverter.h>
@@ -73,6 +74,14 @@ RequestGenCPU::RequestGenCPU(SST::ComponentId_t id, SST::Params& params) :
 	stdMemHandlers = new StdMemHandler(this, out);
 
 	maxOpLookup = params.find<uint64_t>("max_reorder_lookups", 16);
+
+	std::string tracePath = params.find<std::string>("trace_file", "");
+	if ( ! tracePath.empty() ) {
+		traceFile = std::fopen(tracePath.c_str(), "w");
+		if ( nullptr == traceFile ) {
+			out->fatal(CALL_INFO, -1, "Unable to open Miranda trace file: %s\n", tracePath.c_str());
+		}
+	}
 
 	out->verbose(CALL_INFO, 1, 0, "Loaded memory interface successfully.\n");
 
@@ -174,14 +183,22 @@ RequestGenCPU::RequestGenCPU(SST::ComponentId_t id, SST::Params& params) :
 	out->verbose(CALL_INFO, 1, 0, "- Max Load requests pending:      %" PRIu32 "\n", maxRequestsPending[READ]);
 	out->verbose(CALL_INFO, 1, 0, "- Max Store requests pending:     %" PRIu32 "\n", maxRequestsPending[WRITE]);
 	out->verbose(CALL_INFO, 1, 0, "- Max Custom requests pending:     %" PRIu32 "\n", maxRequestsPending[CUSTOM]);
+	out->verbose(CALL_INFO, 1, 0, "- Request trace:                  %s\n", traceFile ? "enabled" : "disabled");
 	out->verbose(CALL_INFO, 1, 0, "Configuration completed.\n");
 }
 
 RequestGenCPU::~RequestGenCPU() {
+	if ( traceFile ) {
+		std::fclose(traceFile);
+		traceFile = nullptr;
+	}
 	delete out;
 }
 
 void RequestGenCPU::finish() {
+	if ( traceFile ) {
+		std::fflush(traceFile);
+	}
 }
 
 void RequestGenCPU::init(unsigned int phase) {
@@ -394,6 +411,10 @@ void RequestGenCPU::issueRequest(MemoryOpRequest* req) {
     }
 }
 
+void RequestGenCPU::traceRequest(char op, uint64_t addr, uint64_t len) {
+    std::fprintf(traceFile, "%" PRIu64 ",%c,%" PRIu64 ",%" PRIu64 "\n", traceSeq++, op, addr, len);
+}
+
 bool RequestGenCPU::clockTick(SST::Cycle_t cycle) {
 
     if ( ! reqGen ) {
@@ -459,9 +480,23 @@ bool RequestGenCPU::clockTick(SST::Cycle_t cycle) {
     for(int i = pendingRequests.size(); i < maxOpLookup; ++i) {
         if( reqGen->isFinished()) {
             break;
-    	} else {
+     	} else {
+            const uint32_t traceStart = pendingRequests.size();
             reqGen->generate(&pendingRequests);
-    	}
+            if ( traceFile ) {
+                for(uint32_t traceIdx = traceStart; traceIdx < pendingRequests.size(); ++traceIdx) {
+                    GeneratorRequest* traceReq = pendingRequests.at(traceIdx);
+                    ReqOperation traceOp = traceReq->getOperation();
+                    if ( traceOp == READ || traceOp == WRITE ) {
+                        MemoryOpRequest* memReq = static_cast<MemoryOpRequest*>(traceReq);
+                        traceRequest(memReq->isRead() ? 'R' : 'W', memReq->getAddress(), memReq->getLength());
+                    } else if ( traceOp == CUSTOM ) {
+                        CustomOpRequest* customReq = static_cast<CustomOpRequest*>(traceReq);
+                        traceRequest('C', customReq->getPayload()->getRoutingAddress(), customReq->getPayload()->getSize());
+                    }
+                }
+            }
+     	}
     }
 
     for(uint32_t i = 0; i < pendingRequests.size(); ++i) {

@@ -20,6 +20,8 @@
 #include <sst/core/interfaces/stdMem.h>
 #include <sst/core/statapi/stataccumulator.h>
 
+#include <cstdio>
+
 #include "mirandaGenerator.h"
 #include "mirandaEvent.h"
 #include "mirandaMemMgr.h"
@@ -106,7 +108,8 @@ public:
         { "pagesize", "Sets the size of the page in the system, MUST be a multiple of cache_line_size", "4096" },
         { "pagemap", "Mapping scheme, string set to LINEAR or RANDOMIZED, default is LINEAR (virtual==physical), RANDOMIZED randomly shuffles virtual to physical map.", "LINEAR" },
         { "pagemapname", "Name of the shared memory region to keep page mapping in", "miranda"},
-    	)
+        { "trace_file", "Optional path to write logical Miranda request trace lines: seq,op,addr,len", "" },
+      	)
 
 	SST_ELI_DOCUMENT_STATISTICS(
         { "split_read_reqs",    "Number of read requests split over a cache line boundary",     "requests", 2 },
@@ -189,6 +192,7 @@ private:
     bool clockTick( SST::Cycle_t );
     void issueRequest(MemoryOpRequest* req);
     void issueCustomRequest(CustomOpRequest* req);
+    void traceRequest(char op, uint64_t addr, uint64_t len);
     void handleSrcEvent( SST::Event* );
 
     Output* out = nullptr;
@@ -208,8 +212,10 @@ private:
     uint32_t maxRequestsPending[OPCOUNT];
 	uint32_t requestsPending[OPCOUNT];
 	uint32_t reqMaxPerCycle;
-	uint64_t cacheLine;
-	uint32_t maxOpLookup;
+    uint64_t cacheLine;
+    uint32_t maxOpLookup;
+    FILE* traceFile = nullptr;
+    uint64_t traceSeq = 0;
 
     Statistic<uint64_t>* statReqs[OPCOUNT] = {nullptr, nullptr, nullptr, nullptr};
 	Statistic<uint64_t>* statSplitReqs[OPCOUNT] = {nullptr, nullptr, nullptr, nullptr};
@@ -227,4 +233,3 @@ private:
 }
 }
 #endif /* _RequestGenCPU_H */
-
