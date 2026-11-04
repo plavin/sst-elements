@@ -34,17 +34,15 @@
 namespace SST {
 namespace ArielComponent {
 
-#define STRINGIZE(input) #input
-
 class DynamoRIOFrontend : public ArielFrontendCommon {
 public:
     SST_ELI_REGISTER_SUBCOMPONENT(DynamoRIOFrontend, "ariel", "frontend.dynamorio", SST_ELI_ELEMENT_VERSION(1,0,0),
         "Ariel frontend for dynamic tracing using DynamoRIO", SST::ArielComponent::ArielFrontend)
 
     SST_ELI_DOCUMENT_PARAMS(
-        {"launcher", "Specify the launcher to be used for instrumentation, default is path to drrun", STRINGIZE(DYNAMORIO_EXECUTABLE)},
+        {"launcher", "Specify the launcher to be used for instrumentation, default is path to drrun", DYNAMORIO_EXECUTABLE},
         {"launchparamcount", "Number of parameters supplied for the launch tool", "0"},
-        {"launchparam%(launchparamcount)d", "Set the parameter to the launcher", ""},
+        {"launchparam%(launchparamcount)d", "Set a DynamoRIO (drrun) option; these are placed before the client (-c)", ""},
         {"arieltool", "Path to the Ariel DynamoRIO client shared library", ""},
         {"writepayloadtrace", "Trace write payloads and put real memory contents into the memory system", "0"})
 

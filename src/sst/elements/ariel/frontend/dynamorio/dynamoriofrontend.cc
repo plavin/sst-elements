@@ -206,17 +206,19 @@ DynamoRIOFrontend::setForkArguments()
     snprintf(execute_args[arg], applauncher.size() + 2, "%s", applauncher.c_str());
     arg++;
 
-    execute_args[arg++] = const_cast<char*>("-c");
-    execute_args[arg]   = (char*)malloc(sizeof(char) * (arieltool.size() + 1));
-    strcpy(execute_args[arg], arieltool.c_str());
-    arg++;
-
+    // drrun syntax: drrun [DR options] -c <client> [client options] -- <app>
+    // Launch parameters are DynamoRIO options, so they must precede -c.
     for (auto itr = launch_params.begin(); itr != launch_params.end(); itr++) {
         std::string launch_p = (*itr);
         execute_args[arg]    = (char*)malloc(sizeof(char) * (launch_p.size() + 1));
         strcpy(execute_args[arg], launch_p.c_str());
         arg++;
     }
+
+    execute_args[arg++] = const_cast<char*>("-c");
+    execute_args[arg]   = (char*)malloc(sizeof(char) * (arieltool.size() + 1));
+    strcpy(execute_args[arg], arieltool.c_str());
+    arg++;
 
     std::string shmem_region_name = tunnelmgr->getRegionName();
     size_t      buff8size         = sizeof(char) * 32;
