@@ -121,7 +121,6 @@ endif # HAVE_PIN3
 endif # HAVE_PINTOOL
 
 if HAVE_DYNAMORIO
-AM_CPPFLAGS += $(DYNAMORIO_CPPFLAGS)
 libariel_la_SOURCES += frontend/dynamorio/dynamoriofrontend.h \
 		       frontend/dynamorio/dynamoriofrontend.cc
 endif # HAVE_DYNAMORIO
@@ -158,10 +157,14 @@ fedynamorio.so : fedynamorio.o
 	    -Wl,-rpath,$(DYNAMORIO_DIR)/ext/lib64/release \
 	    -ldynamorio -ldrmgr -ldrreg -ldrutil -ldl
 
-fedynamorio.o : $(top_srcdir)/src/sst/elements/ariel/frontend/dynamorio/fedynamorio.cc
+fedynamorio.o : $(top_srcdir)/src/sst/elements/ariel/frontend/dynamorio/fedynamorio.cc $(top_srcdir)/src/sst/elements/ariel/ariel_shmem.h
 	$(CXX) $(AM_CXXFLAGS) $(CXXFLAGS) $(AM_CPPFLAGS) $(CPPFLAGS) \
+	    $(DYNAMORIO_ARCH_CPPFLAGS) $(DYNAMORIO_CPPFLAGS) \
 	    -I$(top_srcdir)/src/sst/elements/ariel \
-	    -DLINUX -DARM_64 -fPIC -O2 -c $(top_srcdir)/src/sst/elements/ariel/frontend/dynamorio/fedynamorio.cc
+	    -fPIC -O2 -c $(top_srcdir)/src/sst/elements/ariel/frontend/dynamorio/fedynamorio.cc
+
+clean-local:
+	rm -f fedynamorio.o fedynamorio.so
 
 install-exec-local:
 	$(MKDIR_P) $(libexecdir)
