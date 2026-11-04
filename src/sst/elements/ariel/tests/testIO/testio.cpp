@@ -18,11 +18,19 @@
 #include <iostream>
 #include <string>
 #include <sys/poll.h>
+#include <sys/stat.h>
 
-// Detect whether we are reading stdin from a file or not
+// Detect whether we are reading stdin from a file or not.
+// A regular file (e.g. Ariel's appstdin redirection) is always treated as redirected;
+// a pipe is redirected if poll reports it readable. Anything else (a terminal or
+// /dev/null when run non-interactively) gets the default output.
 int stdin_is_redirected() {
+    struct stat st;
+    if (fstat(0, &st) != 0) return 0;
+    if (S_ISREG(st.st_mode)) return 1;
+    if (!S_ISFIFO(st.st_mode)) return 0;
+
     struct pollfd fds;
-    int ret;
     fds.fd = 0; /* this is STDIN */
     fds.events = POLLIN;
     return poll(&fds, 1, 0);
