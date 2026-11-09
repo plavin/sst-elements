@@ -133,16 +133,13 @@ public:
         assert(reg < count_int_regs);
         assert(sizeof(T) <= int_reg_width);
 
-        if ( reg != decoder_opts->getRegisterIgnoreWrites() )
-        {
-            int index = get_reg_index(reg, 0);
-            char* reg_start = &int_reg_storage[index];
-            T*    reg_start_T = (T*)reg_start;
-            return *(reg_start_T);
-        }
-        else {
-            return T();
-        }
+        // reg is a physical register id, not an ISA register id, so it must not be compared
+        // against getRegisterIgnoreWrites() (the ISA index of x0). x0 is kept at zero by the
+        // per-cycle reset in VanadisCore::tick(), which writes through the live isa->phys mapping.
+        int index = get_reg_index(reg, 0);
+        char* reg_start = &int_reg_storage[index];
+        T*    reg_start_T = (T*)reg_start;
+        return *(reg_start_T);
     }
 
     template <typename T>
@@ -161,20 +158,21 @@ public:
     {
         assert(reg < count_int_regs);
 
-        if ( LIKELY(reg != decoder_opts->getRegisterIgnoreWrites()) ) {
-            int index = get_reg_index(reg, 0);
-            T*    reg_ptr_t = (T*)(&int_reg_storage[index]);
-            char* reg_ptr_c = (char*)(reg_ptr_t);
+        // See the comment in getIntReg() above: reg is a physical register id, so it must not be
+        // compared against getRegisterIgnoreWrites(). x0 stays zero via VanadisCore::tick()'s
+        // per-cycle reset instead.
+        int index = get_reg_index(reg, 0);
+        T*    reg_ptr_t = (T*)(&int_reg_storage[index]);
+        char* reg_ptr_c = (char*)(reg_ptr_t);
 
-            reg_ptr_t[0] = val;
+        reg_ptr_t[0] = val;
 
-            // if we need to sign extend, check if the most-significant bit is a 1, if yes then
-            // fill with 0xFF, otherwise fill with 0x00
-            std::memset(
-                &reg_ptr_c[sizeof(T)],
-                sign_extend ? ((val & (static_cast<T>(1) << (sizeof(T) * 8 - 1))) == 0) ? 0x00 : 0xFF : 0x00,
-                int_reg_width - sizeof(T));
-        }
+        // if we need to sign extend, check if the most-significant bit is a 1, if yes then
+        // fill with 0xFF, otherwise fill with 0x00
+        std::memset(
+            &reg_ptr_c[sizeof(T)],
+            sign_extend ? ((val & (static_cast<T>(1) << (sizeof(T) * 8 - 1))) == 0) ? 0x00 : 0xFF : 0x00,
+            int_reg_width - sizeof(T));
     }
 
     template <typename T>

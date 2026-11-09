@@ -437,7 +437,11 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
 
                             assert(target_isa_reg < load_ins->getISAOptions()->countISAIntRegisters());
 
-                            if(target_reg != load_ins->getISAOptions()->getRegisterIgnoreWrites()) {
+                            // target_reg is a physical register id; getRegisterIgnoreWrites() returns
+                            // the ISA index of x0. Compare target_isa_reg instead, matching the fix in
+                            // inst/regfile.h, so writeback to x0 is skipped only when x0 is the real
+                            // destination, not whenever the physical id happens to match.
+                            if(target_isa_reg != load_ins->getISAOptions()->getRegisterIgnoreWrites()) {
                                 reg_width = lsq_->register_files_->at(target_thread)->getIntRegWidth();
                                 std::vector<uint8_t> register_value(reg_width);
                                 // copy entire register here
