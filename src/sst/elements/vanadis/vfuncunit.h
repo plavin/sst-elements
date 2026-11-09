@@ -22,6 +22,7 @@
 #include <deque>
 
 #include "inst/vinst.h"
+#include "vregreadycheck.h"
 
 
 namespace SST {
@@ -73,6 +74,21 @@ public:
 
     uint16_t getUnitID() const { return fu_id; }
 
+    // Gives this FU pointers to the owning core's physical-register ready-bit
+    // vectors (indexed by physical register id, shared pool across hw-threads) plus the core's
+    // reg_ready_at_writeback flag. Pointers stay null (default) unless the core wires them up,
+    // and markRegsReadyIfEnabled() below is a no-op unless the flag is true, so this has zero
+    // effect on the default-off path.
+    void setRegReadyBits(std::vector<uint8_t>* int_reg_ready, std::vector<uint8_t>* fp_reg_ready, const bool* flag) {
+        int_reg_ready_ = int_reg_ready;
+        fp_reg_ready_ = fp_reg_ready;
+        reg_ready_at_writeback_ = flag;
+    }
+
+    // Wires up the shadow checker (no-op unless its own "reg_ready_check" debug
+    // param is on; see vregreadycheck.h).
+    void setRegReadyChecker(VanadisRegReadyChecker* checker) { reg_ready_checker_ = checker; }
+
     void tick(const uint64_t cycle, SST::Output* output, std::vector<VanadisRegisterFile*>& regFile) {
         int k_in=0;
         for(auto q_itr = pending_execute.begin(); q_itr != pending_execute.end();) {
@@ -81,10 +97,23 @@ public:
             if(q_item->readyToExecute())
             {
                 VanadisInstruction* inner_ins = q_item->getInstruction();
+
+                // This is the actual read point for this instruction's source
+                // operands (execute() reads them to compute its result) -- check before, not
+                // after, the read happens.
+                if ( nullptr != reg_ready_checker_ ) { reg_ready_checker_->checkRead(output, inner_ins); }
+
                 inner_ins->execute(output, regFile);
 
                 if(LIKELY(inner_ins->completedExecution()))
                 {
+                    // The instruction's scalarExecute() has already written the
+                    // register file by this point (markExecuted() was called from within
+                    // execute()/scalarExecute()), so this is the writeback point for the
+                    // ready-at-writeback path.
+                    markRegsReadyIfEnabled(inner_ins);
+                    if ( nullptr != reg_ready_checker_ ) { reg_ready_checker_->checkWrite(output, inner_ins); }
+
                     // Delete the record entry for functional unit if the instruction marked itself executed
                     delete q_item;
 
@@ -134,12 +163,32 @@ public:
     }
 
 private:
+    // Marks the physical int/fp output registers of a just-completed instruction as
+    // ready (ready_at_writeback path). No-op when the core hasn't wired up the pointers (default
+    // off path, or any FU vector the core doesn't opt in).
+    void markRegsReadyIfEnabled(VanadisInstruction* ins) {
+        if (nullptr == reg_ready_at_writeback_ || !(*reg_ready_at_writeback_)) { return; }
+
+        for (uint16_t i = 0; i < ins->countISAIntRegOut(); ++i) {
+            (*int_reg_ready_)[ins->getPhysIntRegOut(i)] = 1;
+        }
+        for (uint16_t i = 0; i < ins->countISAFPRegOut(); ++i) {
+            (*fp_reg_ready_)[ins->getPhysFPRegOut(i)] = 1;
+        }
+    }
+
     std::deque<VanadisFunctionalUnitInsRecord*> pending_execute;
 
     const uint16_t latency;
     VanadisFunctionalUnitType fu_type;
     const uint16_t fu_id;
     bool accept_this_cycle;
+
+    // reg_ready_at_writeback state (see setRegReadyBits above).
+    std::vector<uint8_t>* int_reg_ready_ = nullptr;
+    std::vector<uint8_t>* fp_reg_ready_ = nullptr;
+    const bool* reg_ready_at_writeback_ = nullptr;
+    VanadisRegReadyChecker* reg_ready_checker_ = nullptr;
 };
 
 } // namespace Vanadis

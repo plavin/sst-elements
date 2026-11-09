@@ -23,6 +23,8 @@
 #include "inst/vfence.h"
 #include "inst/vload.h"
 #include "inst/vstore.h"
+#include "../vregreadycheck.h"
+#include "../vmemordercheck.h"
 
 #include <cassert>
 #include <cinttypes>
@@ -85,6 +87,26 @@ public:
 
         register_files_ = reg_f;
     }
+
+    // Gives the LSQ access to the owning core's physical-register ready-bit vectors (indexed
+    // by physical register id) and its reg_ready_at_writeback flag, so load/store/fence
+    // completion can mark output registers ready at writeback instead of only at retire.
+    // Pointers stay null, and markRegReadyIfEnabled() below is a no-op, unless the core wires
+    // this up, so this has no effect on the default-off path.
+    void setRegReadyBits(std::vector<uint8_t>* int_reg_ready, std::vector<uint8_t>* fp_reg_ready, const bool* flag) {
+        int_reg_ready_ = int_reg_ready;
+        fp_reg_ready_ = fp_reg_ready;
+        reg_ready_at_writeback_ = flag;
+    }
+
+    // Wires up the shadow checker (no-op unless its own "reg_ready_check" debug param is on;
+    // see vregreadycheck.h).
+    void setRegReadyChecker(VanadisRegReadyChecker* checker) { reg_ready_checker_ = checker; }
+
+    // Wires up the memory-order shadow checker (no-op unless its own "mem_order_check" debug
+    // param is on; see ../vmemordercheck.h).
+    void setMemOrderChecker(VanadisMemOrderChecker* checker) { mem_order_checker_ = checker; }
+
     void setCoreId( int core ) { core_id_ = core; }
     int getCoreId( ) { return core_id_; }
 
@@ -162,12 +184,67 @@ protected:
         return false;
     }
 
+    // Marks the physical int/fp output registers of a just-completed load/store/fence as
+    // ready (ready_at_writeback path). No-op when the core hasn't wired up the pointers.
+    void markRegReadyIfEnabled(VanadisInstruction* ins) {
+        if (nullptr == reg_ready_at_writeback_ || !(*reg_ready_at_writeback_)) { return; }
+
+        for (uint16_t i = 0; i < ins->countISAIntRegOut(); ++i) {
+            (*int_reg_ready_)[ins->getPhysIntRegOut(i)] = 1;
+        }
+        for (uint16_t i = 0; i < ins->countISAFPRegOut(); ++i) {
+            (*fp_reg_ready_)[ins->getPhysFPRegOut(i)] = 1;
+        }
+    }
+
+    // Call right before actually reading an instruction's source operands (address and/or
+    // data register(s)) out of the register file. No-op unless "reg_ready_check" is on.
+    void checkRegReadyReadIfEnabled(VanadisInstruction* ins) {
+        if ( nullptr != reg_ready_checker_ ) { reg_ready_checker_->checkRead(output_, ins); }
+    }
+
+    // Call right after an instruction's destination operand(s) have actually been written
+    // into the register file (alongside markRegReadyIfEnabled above). No-op unless
+    // "reg_ready_check" is on.
+    void checkRegReadyWriteIfEnabled(VanadisInstruction* ins) {
+        if ( nullptr != reg_ready_checker_ ) { reg_ready_checker_->checkWrite(output_, ins); }
+    }
+
+    // mem_order_check capture hooks (no-ops unless "mem_order_check" is on; see
+    // ../vmemordercheck.h). Callers must only call these for ordinary (MEM_TRANSACTION_NONE)
+    // loads/stores -- LL/SC/AMO/LOCK are deliberately never captured.
+    void captureStoreChunkIfEnabled(VanadisInstruction* store_ins, uint64_t address, const uint8_t* data, uint64_t width) {
+        if ( nullptr != mem_order_checker_ ) { mem_order_checker_->captureStoreChunk(store_ins, address, data, width); }
+    }
+    void captureLoadChunkIfEnabled(VanadisInstruction* load_ins, uint64_t address, const uint8_t* data, uint64_t width) {
+        if ( nullptr != mem_order_checker_ ) { mem_order_checker_->captureLoadChunk(load_ins, address, data, width); }
+    }
+    void noteStoreAckIfEnabled(uint64_t address, uint64_t width) {
+        if ( nullptr != mem_order_checker_ ) { mem_order_checker_->noteStoreAck(address, width); }
+    }
+
+    // Call the instant an LL/SC/LOCK store's write is dispatched to memory (these transaction
+    // types are deliberately never captured by captureStoreChunkIfEnabled -- see
+    // vmemordercheck.h) to conservatively drop the shadow's opinion of the bytes it's about to
+    // overwrite, avoiding a false positive against a stale pre-AMO shadow value. No-op unless
+    // mem_order_check is on.
+    void invalidateMemOrderRangeIfEnabled(uint64_t address, uint64_t width) {
+        if ( nullptr != mem_order_checker_ ) { mem_order_checker_->invalidateRange(address, width); }
+    }
+
     std::deque<uint64_t> dbg_ins_addrs_;
     std::deque<uint64_t> dbg_addrs_;
     uint32_t core_id_;
     uint32_t hw_threads_;
     std::vector<VanadisRegisterFile*>* register_files_;
     SST::Output* output_;
+
+    // reg_ready_at_writeback state (see setRegReadyBits above).
+    std::vector<uint8_t>* int_reg_ready_ = nullptr;
+    std::vector<uint8_t>* fp_reg_ready_ = nullptr;
+    const bool* reg_ready_at_writeback_ = nullptr;
+    VanadisRegReadyChecker* reg_ready_checker_ = nullptr;
+    VanadisMemOrderChecker* mem_order_checker_ = nullptr;
 };
 
 } // namespace Vanadis

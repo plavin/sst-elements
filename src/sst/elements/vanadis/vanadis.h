@@ -27,6 +27,8 @@
 #include "velf/velfinfo.h"
 #include "vfpflags.h"
 #include "vfuncunit.h"
+#include "vregreadycheck.h"
+#include "vmemordercheck.h"
 #include "rocc/vroccinterface.h"
 #include "rocc/vbasicrocc.h"
 
@@ -147,7 +149,24 @@ public:
         { "print_fp_reg", "Print floating-point registers true/false, auto set to "
                           "true if verbose > 16", "false" },
         { "print_rob", "Print reorder buffer state during issue and retire", "true"},
-        { "enable_simt", "Implement SIMT pipeline for multithread kernels", "false"}  )
+        { "enable_simt", "Implement SIMT pipeline for multithread kernels", "false"},
+        { "reg_ready_at_writeback", "Default off. When true, a consumer instruction may issue as soon as the "
+                                     "physical register(s) feeding its inputs have been written by the producer's execution "
+                                     "(writeback), instead of waiting for the producer to fully retire. SYSCALL/FENCE/ROCC and "
+                                     "LL/SC-or-AMO loads/stores keep the old retire-gated behavior for safety. Default false "
+                                     "reproduces the original pendingWrites-at-retire semantics exactly.", "false"},
+        { "reg_ready_check", "Debug-only, default off. When true, enables a read-only shadow checker "
+                              "(see vregreadycheck.h) that fatal()s with instruction/phys-reg/cycle details on the "
+                              "first provable use-after-free, read-before-write, or stale-writeback hazard on a "
+                              "physical register. Purely observational: it never changes issue/execute/retire "
+                              "control flow, so leaving it off (default) or on cannot change simulated cycle "
+                              "counts.", "false"},
+        { "mem_order_check", "Debug-only, default off. When true, enables a read-only, byte-granular "
+                              "shadow-memory checker (see vmemordercheck.h) that tracks this core's own ordinary "
+                              "store stream and fatal()s with full timing diagnostics on the first provable "
+                              "memory-ordering violation (a load retiring with a value stale relative to program "
+                              "order). Purely observational: it never changes issue/execute/retire control flow, "
+                              "so leaving it off (default) or on cannot change simulated cycle counts.", "false"}  )
 
     SST_ELI_DOCUMENT_STATISTICS(
         { "cycles", "Number of cycles the core executed", "cycles", 1 },
@@ -166,7 +185,14 @@ public:
         { "stores_issued", "Number of store instructions issued to the LSQ", "instructions", 1 },
         { "phys_int_reg_in_use", "Number of physical integer registers that are in use each cycle", "registers", 1 },
         { "phys_fp_reg_in_use", "Number of physical floating point registers than are in use each cycle", "registers",
-          1 })
+          1 },
+        { "mem_block_unalloc_seen", "LOAD/STORE/FENCE skipped allocation because an earlier mem-op this cycle already failed to allocate", "instructions", 1 },
+        { "mem_block_out_reg_avail", "LOAD/STORE/FENCE blocked at issue: no free physical register for output", "instructions", 1 },
+        { "mem_block_in_raw", "LOAD/STORE/FENCE blocked at issue: an input operand (e.g. address register) still has a pending write", "instructions", 1 },
+        { "mem_block_out_hazard", "LOAD/STORE/FENCE blocked at issue: WAW/WAR vs an earlier not-yet-issued instruction", "instructions", 1 },
+        { "mem_block_lsq_full", "LOAD/STORE blocked at issue: resources ok but LSQ op queue is full", "instructions", 1 },
+        { "wbready_int_raw_block", "Issue blocked on an integer input whose producer has not yet written back (reg_ready_at_writeback path)", "instructions", 1 },
+        { "wbready_fp_raw_block", "Issue blocked on an FP input whose producer has not yet written back (reg_ready_at_writeback path)", "instructions", 1 })
 
     SST_ELI_DOCUMENT_PORTS({ "icache_link", "Connects the CPU to the instruction cache", {} },
                            { "dcache_link", "Connects the CPU to the data cache", {} },
@@ -296,6 +322,68 @@ private:
     VanadisRegisterStack* int_register_stack = nullptr;
     VanadisRegisterStack* fp_register_stack = nullptr;
 
+    // Register-ready-at-writeback dependency tracking (default off, see
+    // "reg_ready_at_writeback" param). Indexed by *physical* register id (shared pool across
+    // hw-threads, same indexing as int_register_stack/fp_register_stack). int_reg_ready_/
+    // fp_reg_ready_[p]==1 means the value currently held in physical reg p is valid to read
+    // without waiting for its producer to retire. int_reg_needs_retire_/fp_reg_needs_retire_[p]==1
+    // forces consumers to fall back to the original pendingWrites-at-retire check for that phys
+    // reg regardless of the ready bit (used for SYSCALL/FENCE/ROCC outputs and LL/SC loads/stores,
+    // which keep the old semantics). Both vectors are no-ops (never consulted) when the param is
+    // off, and are maintained unconditionally cheaply so there is no divergent code path risk.
+    bool reg_ready_at_writeback = false;
+    std::vector<uint8_t> int_reg_ready_;
+    std::vector<uint8_t> fp_reg_ready_;
+    std::vector<uint8_t> int_reg_needs_retire_;
+    std::vector<uint8_t> fp_reg_needs_retire_;
+
+    void markPhysRegsReady(VanadisInstruction* ins);
+    static bool wbreadyRequiresRetireGating(VanadisInstruction* ins);
+
+    // Apply the mem_order_check shadow checker's retire-time hooks for a genuinely
+    // retiring (not squashed) instruction -- commits a STORE's captured payload into the shadow,
+    // checks a LOAD's captured response bytes against the shadow, and clears the whole shadow on
+    // a SYSCALL (the OS can touch memory this core's own store stream never observed). No-op
+    // unless mem_order_check is on. Always calls mem_order_checker_.forget(ins) afterwards.
+    void applyMemOrderCheckAtRetire(VanadisInstruction* ins);
+
+    // Debug-only, gated by reg_ready_check. Extends the
+    // shadow checker to catch a class of bug it otherwise cannot see: a consumer that captures a
+    // STALE (too-old) ISA->phys mapping -- e.g. because an issue-gating relaxation let it issue
+    // before a newer, not-yet-renamed writer of the same ISA register got a chance to rename --
+    // would still pass checkRead/checkWrite cleanly (the stale producer legitimately wrote that
+    // phys reg), but is architecturally wrong. Scans the ROB from the front to find the nearest
+    // STRICTLY OLDER, already-issued writer of isa_reg before reaching ins itself; if one exists,
+    // asserts captured_phys_reg equals that writer's own output phys reg. If no in-ROB writer is
+    // found at all, falls back to comparing against the retired mapping (retire_isa_tables), which
+    // must then be the true source of truth. Called right after each ISA->phys input lookup in
+    // assignRegistersToInstruction. No-op unless reg_ready_check is on.
+    void debugCheckRenameConsistency(
+        const int hw_thr, VanadisInstruction* ins, uint16_t isa_reg, uint16_t captured_phys_reg, bool is_int);
+
+    // Shadow checker state (debug-only, "reg_ready_check" param, default off; see
+    // vregreadycheck.h for the full design writeup). Indexed by *physical* register id, same
+    // pool/indexing as int_reg_ready_/fp_reg_ready_ above. All maintained unconditionally
+    // (cheap) but only ever consulted/fatal()-capable when reg_ready_check is true.
+    bool reg_ready_check = false;
+    std::vector<uint32_t> int_reg_gen_;
+    std::vector<uint32_t> fp_reg_gen_;
+    std::vector<uint8_t>  int_reg_written_;
+    std::vector<uint8_t>  fp_reg_written_;
+    std::vector<uint64_t> int_reg_producer_;
+    std::vector<uint64_t> fp_reg_producer_;
+    VanadisRegReadyChecker::InsGenMap chk_int_in_gen_;
+    VanadisRegReadyChecker::InsGenMap chk_fp_in_gen_;
+    VanadisRegReadyChecker::InsGenMap chk_int_out_gen_;
+    VanadisRegReadyChecker::InsGenMap chk_fp_out_gen_;
+    VanadisRegReadyChecker reg_ready_checker_;
+
+    // Byte-granular shadow memory-order checker state (debug-only, "mem_order_check"
+    // param, default off; see vmemordercheck.h for the full design writeup). Entirely no-op
+    // (reads/writes nothing, cannot affect cycle counts) unless mem_order_check is true.
+    bool mem_order_check = false;
+    VanadisMemOrderChecker mem_order_checker_;
+
     std::vector<VanadisISATable*> issue_isa_tables;
     std::vector<VanadisISATable*> retire_isa_tables;
 
@@ -347,6 +435,20 @@ private:
     Statistic<uint64_t>* stat_syscall_cycles = nullptr;
     Statistic<uint64_t>* stat_int_phys_regs_in_use = nullptr;
     Statistic<uint64_t>* stat_fp_phys_regs_in_use = nullptr;
+
+    // Additive instrumentation counting reasons a LOAD/STORE fails to allocate into the LSQ at
+    // issue time.
+    Statistic<uint64_t>* stat_mem_block_unalloc_seen = nullptr;   // skipped: earlier mem op this cycle already failed to allocate
+    Statistic<uint64_t>* stat_mem_block_out_reg_avail = nullptr;  // checkInstructionResources code 1: no free phys reg
+    Statistic<uint64_t>* stat_mem_block_in_raw = nullptr;         // code 2/3: input operand (e.g. address reg) write still pending
+    Statistic<uint64_t>* stat_mem_block_out_hazard = nullptr;     // code 4/5: WAW/WAR vs an earlier not-yet-issued op
+    Statistic<uint64_t>* stat_mem_block_lsq_full = nullptr;       // resource_check passed but lsq->loadFull()/storeFull()
+
+    // Counts of RAW blocks that occurred while checking the reg_ready_at_writeback ready-bit
+    // path (i.e. would-be-blocked-on-input-not-yet-written-back), for ANY instruction (not just
+    // mem ops like the counters above). Zero when the param is off.
+    Statistic<uint64_t>* stat_wbready_int_raw_block = nullptr;
+    Statistic<uint64_t>* stat_wbready_fp_raw_block = nullptr;
 
     uint32_t ins_issued_this_cycle;
     uint32_t ins_retired_this_cycle;

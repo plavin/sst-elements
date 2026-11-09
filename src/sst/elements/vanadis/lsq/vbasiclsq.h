@@ -25,9 +25,11 @@
 #include "util/vsignx.h"
 #include "inst/vstorecond.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cinttypes>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 #include <queue>
 
@@ -75,7 +77,9 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                                     { "stores_in_flight", "Count the number of stores which are in-flight", "operations", 1},
                                     { "store_buffer_entries", "Count the number of stores held in the store buffer", "operations", 1},
                                     { "split_stores", "Count the number of stores which are fractured due to cache boundaries", "operations", 1},
-                                    { "split_loads", "Count the number of loads which are fractured due to cache boundaries", "operations", 1})
+                                    { "split_loads", "Count the number of loads which are fractured due to cache boundaries", "operations", 1},
+                                    { "lsq_front_not_issued", "attempt_to_issue calls where op_q_ front has not completedIssue() yet", "attempts", 1},
+                                    { "lsq_load_max_loads", "attempt_to_issue LOAD blocked because loads_pending_ (in-flight to memory) is at max_loads_", "attempts", 1})
 
 
         VanadisBasicLoadStoreQueue(ComponentId_t id, Params& params, int coreid, int hwthreads) : VanadisLoadStoreQueue(id, params, coreid, hwthreads),
@@ -116,6 +120,9 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
             stat_stores_pending_ = registerStatistic<uint64_t>("stores_in_flight", "1");
             stat_loads_pending_ = registerStatistic<uint64_t>("loads_in_flight", "1");
             stat_op_q_size_ = registerStatistic<uint64_t>("operations_pending");
+
+            stat_lsq_front_not_issued_ = registerStatistic<uint64_t>("lsq_front_not_issued", "1");
+            stat_lsq_load_max_loads_ = registerStatistic<uint64_t>("lsq_load_max_loads", "1");
         }
 
 
@@ -404,6 +411,15 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                         load_ins->flagError();
                     }
 
+                    // mem_order_check: capture this response chunk's raw bytes exactly as read
+                    // from memory, before any sign/zero extension or reg-offset shifting below.
+                    // Ordinary (MEM_TRANSACTION_NONE) loads only -- LL/SC/LOCK loads are
+                    // deliberately never captured (see vmemordercheck.h).
+                    if ( (!load_ins->trapsError()) && (!ev->getFail()) &&
+                         (load_ins->getTransactionType() == MEM_TRANSACTION_NONE) ) {
+                        lsq_->captureLoadChunkIfEnabled(load_ins, ev->vAddr, &ev->data[0], ev->size);
+                    }
+
                     uint16_t target_reg = 0;
                     uint16_t target_isa_reg = 64;
                     uint32_t target_thread     = 0;
@@ -524,6 +540,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                         #endif
 
                         load_ins->markExecuted();
+                        lsq_->markRegReadyIfEnabled(load_ins);
+                        lsq_->checkRegReadyWriteIfEnabled(load_ins);
                         lsq_->stat_loads_executed_->addData(1);
                         lsq_->loads_pending_.erase(load_itr);
                         delete load_entry;
@@ -553,6 +571,14 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                     if ( iter != lsq_->std_stores_in_flight_.end() ) {
                         lsq_->std_stores_in_flight_.erase(iter);
                         std_store_found = true;
+                        // This write is now acknowledged, so stop treating it as "dispatched but
+                        // unacked" for checkStoreConflict()'s purposes (see there for rationale).
+                        // No-op lookup when the param is off, since nothing is ever inserted into
+                        // this map in that case.
+                        lsq_->wbready_stores_inflight_addr_.erase(ev->getID());
+                        // mem_order_check: diagnostic-only record of when this ordinary store's
+                        // write was actually acknowledged by the memory system.
+                        lsq_->noteStoreAckIfEnabled(ev->vAddr, ev->size);
                     }
 
                     #ifdef VANADIS_BUILD_DEBUG
@@ -584,6 +610,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                                 processLLSC(ev,store_ins,store_entry);
 
                                 store_ins->markExecuted();
+                                lsq_->markRegReadyIfEnabled(store_ins);
+                                lsq_->checkRegReadyWriteIfEnabled(store_ins);
                                 lsq_->stores_pending_[thr].erase(lsq_->stores_pending_[thr].begin());
                                 lsq_->stores_pending_size_--;
                                 delete store_entry;
@@ -592,6 +620,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                             case MEM_TRANSACTION_LOCK:
                             {
                                 store_ins->markExecuted();
+                                lsq_->markRegReadyIfEnabled(store_ins);
+                                lsq_->checkRegReadyWriteIfEnabled(store_ins);
                                 lsq_->stores_pending_[thr].erase(lsq_->stores_pending_[thr].begin());
                                 lsq_->stores_pending_size_--;
                                 delete store_entry;
@@ -663,6 +693,12 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                     #ifdef VANADIS_BUILD_DEBUG
                     output_->verbose(CALL_INFO, 16, VANADIS_DBG_LSQ_STORE_FLG, "---> store is at front of ROB so OK to push into memory system.\n");
                     #endif
+                    // issueStore() (below) is the point the store's value (data) register
+                    // actually gets read out of the register file to build the memory write
+                    // request, so (re-)validate just before that read happens; the address
+                    // register was already validated earlier in store_process().
+                    checkRegReadyReadIfEnabled(store_ins);
+
                     // store instruction is current front of ROB so ready to be send to memory system
                     bool issue_result = issueStore(current_store, store_ins);
 
@@ -687,6 +723,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
 
                         // mark executed
                         store_ins->markExecuted();
+                        markRegReadyIfEnabled(store_ins);
+                        checkRegReadyWriteIfEnabled(store_ins);
                         #ifdef VANADIS_BUILD_DEBUG
                         output_->verbose(CALL_INFO, 16, VANADIS_DBG_LSQ_STORE_FLG, "---> issued store: 0x%" PRI_ADDR " / hw_thr: %" PRIu32 " / sw_thr: %" PRIu32 " / numStores: %" PRIu32 "\n",
                                 store_ins->getInstructionAddress(), store_ins->getHWThread(),current_store->getSWThr(), store_ins->getNumStores());
@@ -810,6 +848,15 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                     #endif
 
                     std_stores_in_flight_.insert(store_req->getID());
+                    // Track this dispatched-but-unacked store's address; see checkStoreConflict().
+                    if ( (nullptr != reg_ready_at_writeback_) && *reg_ready_at_writeback_ ) {
+                        wbready_stores_inflight_addr_[store_req->getID()] =
+                            WbreadyInFlightStoreAddr{ store_ins->getHWThread(), store_address, payload.size() };
+                    }
+                    // mem_order_check: capture this chunk's payload at the exact
+                    // point it is read out of the register file and handed to the memory
+                    // interface (left half of a split store).
+                    captureStoreChunkIfEnabled(store_ins, store_address, &payload[0], payload.size());
                     mem_interface_->send(store_req);
 
                     payload.clear();
@@ -829,8 +876,15 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                         store_address_right, store_ins->getInstructionAddress(), store_ins->getHWThread());
                     #endif
 
+                    // mem_order_check: right half of the split store.
+                    captureStoreChunkIfEnabled(store_ins, store_address_right, &payload[0], payload.size());
                     mem_interface_->send(store_req);
                     std_stores_in_flight_.insert(store_req->getID());
+                    // Track this dispatched-but-unacked store's address; see checkStoreConflict().
+                    if ( (nullptr != reg_ready_at_writeback_) && *reg_ready_at_writeback_ ) {
+                        wbready_stores_inflight_addr_[store_req->getID()] =
+                            WbreadyInFlightStoreAddr{ store_ins->getHWThread(), store_address_right, payload.size() };
+                    }
 
                     return true;
                 } else {
@@ -856,6 +910,15 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                     #endif
 
                     std_stores_in_flight_.insert(store_req->getID());
+                    // Track this dispatched-but-unacked store's address; see checkStoreConflict().
+                    if ( (nullptr != reg_ready_at_writeback_) && *reg_ready_at_writeback_ ) {
+                        wbready_stores_inflight_addr_[store_req->getID()] =
+                            WbreadyInFlightStoreAddr{ store_ins->getHWThread(), store_address, payload.size() };
+                    }
+                    // mem_order_check: capture this ordinary, non-split store's
+                    // payload at the exact point it is read out of the register file and handed
+                    // to the memory interface.
+                    captureStoreChunkIfEnabled(store_ins, store_address, &payload[0], payload.size());
                     mem_interface_->send(store_req);
 
                     return true;
@@ -911,6 +974,11 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                 #ifdef VANADIS_BUILD_DEBUG
                 output_->verbose(CALL_INFO, 16, VANADIS_DBG_LSQ_STORE_FLG, "-----> store-request sent to memory interface / entry marked dispatched\n");
                 #endif
+                // mem_order_check: LLSC_STORE/LOCK writes are never captured into the shadow (see
+                // vmemordercheck.h), so conservatively drop any stale shadow opinion of the bytes
+                // this one is about to overwrite -- see invalidateMemOrderRangeIfEnabled()'s doc
+                // comment for the false positive this avoids.
+                invalidateMemOrderRangeIfEnabled(store_address, payload.size());
                 mem_interface_->send(store_req);
                 store_entry->addRequest(store_req->getID());
                 store_entry->markDispatched();
@@ -1173,6 +1241,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                         front_entry->getInstruction()->getInstructionAddress(), front_entry->getInstruction()->getHWThread());
                 }
                 #endif
+                // head-of-queue block
+                stat_lsq_front_not_issued_->addData(1);
                 return false;
             }
 
@@ -1195,6 +1265,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                         #ifdef VANADIS_BUILD_DEBUG
                         output_->verbose(CALL_INFO, 16, VANADIS_DBG_LSQ_LOAD_FLG, "--> cycle: %" PRIu64 " issue LOAD failed: max_loads\n", cycle);
                         #endif
+                        // in-flight-to-memory load limit reached
+                        stat_lsq_load_max_loads_->addData(1);
                         return false;
                     }
 
@@ -1280,6 +1352,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                         }
                         #endif
                         current_fence_ins->markExecuted();
+                        markRegReadyIfEnabled(current_fence_ins); // fences have no outputs; no-op
+                        checkRegReadyWriteIfEnabled(current_fence_ins); // no-op, no outputs
                         stat_fences_executed_->addData(1);
 
                         // erase the front entry
@@ -1313,6 +1387,11 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
             #ifdef VANADIS_BUILD_DEBUG
             output_->verbose(CALL_INFO, 16, VANADIS_DBG_LSQ_LOAD_FLG, "---> computeLoadAddress for sw_thr: %" PRIu32 "\n",sw_thr);
             #endif
+
+            // reg_ready_check: computeLoadAddress() (below) is the actual point the load's
+            // address register(s) get read out of the register file -- validate immediately
+            // before that read happens.
+            checkRegReadyReadIfEnabled(load_ins);
 
             load_ins->computeLoadAddress(output_, hw_thr_reg, &load_address, &load_width);
 
@@ -1410,6 +1489,13 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
             #ifdef VANADIS_BUILD_DEBUG
             output_->verbose(CALL_INFO, 16, VANADIS_DBG_LSQ_LOAD_FLG, "--> computeStoreAddress for sw_thr: %" PRIu32 "\n",sw_thr);
             #endif
+
+            // reg_ready_check: computeStoreAddress() (below) is the actual point the store's
+            // address register(s) get read out of the register file -- validate immediately
+            // before that read happens. The store's value/data register is validated separately,
+            // closer to its own actual read, in issueStoreFront().
+            checkRegReadyReadIfEnabled(store_ins);
+
             store_ins->computeStoreAddress(output_, hw_thr_reg, &store_address, &store_width);
             if(store_ins->trapsError())
             {
@@ -1509,9 +1595,41 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                 }
             }
 
+            // Also check ordinary stores that have already been *dispatched* to the memory system
+            // (popped out of stores_pending_ by issueStoreFront() the instant issueStore() sends
+            // the write request) but whose write has not yet been acknowledged
+            // (wbready_stores_inflight_addr_, populated/cleared alongside std_stores_in_flight_).
+            // stores_pending_ alone only covers the window up to *dispatch*, not *completion*; a
+            // load whose own address check lands in that gap would otherwise see "no conflict"
+            // and could read memory before the still-in-flight write has actually landed -- a
+            // genuine memory-ordering violation. Gated on reg_ready_at_writeback so the
+            // default-off path's issue/memory timing -- and therefore its cycle counts -- are
+            // mechanically untouched (the extra scan simply never runs).
+            if ( !conflicts && (nullptr != reg_ready_at_writeback_) && *reg_ready_at_writeback_ ) {
+                for ( const auto& kv : wbready_stores_inflight_addr_ ) {
+                    const WbreadyInFlightStoreAddr& entry = kv.second;
+                    if ( entry.thread != thread ) { continue; }
+                    const uint64_t lo = std::max(address, entry.address);
+                    const uint64_t hi = std::min(address + width, entry.address + entry.width);
+                    if ( lo < hi ) {
+                        conflicts = true;
+                        break;
+                    }
+                }
+            }
+
             return conflicts;
         }
 
+
+        // See checkStoreConflict() above for the full rationale. Populated at every
+        // mem_interface_->send() for an ordinary store (issueStore(), alongside
+        // std_stores_in_flight_'s insert at the same sites) and erased the instant that store's
+        // WriteResp arrives (StandardMemHandlers::handle(WriteResp*), alongside
+        // std_stores_in_flight_'s erase). Only ever consulted by checkStoreConflict() when
+        // reg_ready_at_writeback is on.
+        struct WbreadyInFlightStoreAddr { uint32_t thread; uint64_t address; uint64_t width; };
+        std::unordered_map<StandardMem::Request::id_t, WbreadyInFlightStoreAddr> wbready_stores_inflight_addr_;
 
         // Per-hardware-thread queues
         std::vector< std::deque<VanadisBasicLoadStoreEntry*> > op_q_;
@@ -1536,6 +1654,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
 
         Statistic<uint64_t>* stat_store_buffer_entries_;
         Statistic<uint64_t>* stat_op_q_size_;
+        Statistic<uint64_t>* stat_lsq_front_not_issued_;
+        Statistic<uint64_t>* stat_lsq_load_max_loads_;
         Statistic<uint64_t>* stat_stores_pending_;
         Statistic<uint64_t>* stat_loads_pending_;
         Statistic<uint64_t>* stat_stores_issued_;

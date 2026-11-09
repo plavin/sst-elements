@@ -124,6 +124,8 @@ vfpflags.h \
 vfuncunit.h \
 vinsbundle.h \
 vinsloader.h \
+vmemordercheck.h \
+vregreadycheck.h \
 \
 os/vappruntimememory.h \
 os/vcheckpointreq.h \

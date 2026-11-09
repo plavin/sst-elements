@@ -127,6 +127,47 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
     int_register_stack = new VanadisRegisterStack(int_reg_count);
     fp_register_stack = new VanadisRegisterStack(fp_reg_count);
 
+    // Register-ready-at-writeback dependency tracking, default off. See
+    // SST_ELI_DOCUMENT_PARAMS above.
+    reg_ready_at_writeback = params.find<bool>("reg_ready_at_writeback", false);
+    // Physical register ids are allocated from a single shared pool (int_register_stack /
+    // fp_register_stack above), so one flat vector per pool, sized to the pool capacity, is
+    // enough to cover every hardware thread. Everything starts "ready" (committed architectural
+    // state / reset value) and "not retire-gated"; both are maintained unconditionally (cheap,
+    // deterministic bookkeeping with no effect on control flow) but are only ever consulted when
+    // reg_ready_at_writeback is true.
+    int_reg_ready_.assign(int_reg_count, 1);
+    fp_reg_ready_.assign(fp_reg_count, 1);
+    int_reg_needs_retire_.assign(int_reg_count, 0);
+    fp_reg_needs_retire_.assign(fp_reg_count, 0);
+
+    // Shadow checker (debug-only, default off, see "reg_ready_check" param and
+    // vregreadycheck.h). Generation starts at 0 for every phys reg (bumped to 1 the first time
+    // each one is actually allocated as a destination); "written" starts false.
+    reg_ready_check = params.find<bool>("reg_ready_check", false);
+    int_reg_gen_.assign(int_reg_count, 0);
+    fp_reg_gen_.assign(fp_reg_count, 0);
+    // "written" starts true: generation 0 means "never yet popped off the free stack by
+    // assignRegistersToInstruction", i.e. still holding whatever the thread's initial/reset
+    // register state is (e.g. sp/gp/a0/a1 set up directly by the OS loader at thread start,
+    // bypassing the normal producer/writeback path entirely). That pre-existing value is by
+    // definition legitimate until some instruction actually claims the register as its own
+    // destination, at which point allocateIntOut()/allocateFPOut() correctly flip this back to
+    // false until that instruction's own writeback.
+    int_reg_written_.assign(int_reg_count, 1);
+    fp_reg_written_.assign(fp_reg_count, 1);
+    int_reg_producer_.assign(int_reg_count, 0);
+    fp_reg_producer_.assign(fp_reg_count, 0);
+    reg_ready_checker_.configure(
+        &int_reg_gen_, &fp_reg_gen_, &int_reg_written_, &fp_reg_written_, &int_reg_producer_, &fp_reg_producer_,
+        &chk_int_in_gen_, &chk_fp_in_gen_, &chk_int_out_gen_, &chk_fp_out_gen_, &reg_ready_check, &current_cycle,
+        &int_reg_ready_, &int_reg_needs_retire_);
+
+    // Byte-granular shadow memory-order checker (debug-only, default off, see
+    // "mem_order_check" param and vmemordercheck.h).
+    mem_order_check = params.find<bool>("mem_order_check", false);
+    mem_order_checker_.configure(&mem_order_check, &current_cycle);
+
     // Create the decoder(s) - one per HW thread
     SubComponentSlotInfo * decoders = getSubComponentSlotInfo("decoder");
     for ( uint32_t i = 0; i < hw_threads; ++i ) {
@@ -270,6 +311,11 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
     }
 
     lsq->setRegisterFiles(&register_files);
+    // Gives the LSQ access to the ready-bit vectors so load/store completion can mark their
+    // output phys regs ready (no-op while reg_ready_at_writeback is false).
+    lsq->setRegReadyBits(&int_reg_ready_, &fp_reg_ready_, &reg_ready_at_writeback);
+    lsq->setRegReadyChecker(&reg_ready_checker_);
+    lsq->setMemOrderChecker(&mem_order_checker_);
 
     //////////////////////////////////////////////////////////////////////////////////////
     SubComponentSlotInfo * lists = getSubComponentSlotInfo("rocc");
@@ -342,6 +388,16 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
         fu_fp_div.push_back(new VanadisFunctionalUnit(fu_id++, INST_FP_DIV, fp_div_cycles));
     }
 
+    // Wires every functional unit up to the ready-bit vectors (no-op unless
+    // reg_ready_at_writeback is true; see VanadisFunctionalUnit::markRegsReadyIfEnabled).
+    for ( auto* fu_vec_ptr : std::vector<std::vector<VanadisFunctionalUnit*>*>{
+              &fu_int_arith, &fu_int_div, &fu_branch, &fu_fp_arith, &fu_fp_div } ) {
+        for ( VanadisFunctionalUnit* fu : *fu_vec_ptr ) {
+            fu->setRegReadyBits(&int_reg_ready_, &fp_reg_ready_, &reg_ready_at_writeback);
+            fu->setRegReadyChecker(&reg_ready_checker_);
+        }
+    }
+
     //////////////////////////////////////////////////////////////////////////////////////
     for ( uint32_t i = 0; i < hw_threads; ++i ) {
         thread_decoders[i]->getOSHandler()->setCoreID(core_id);
@@ -393,6 +449,15 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
     stat_syscall_cycles       = registerStatistic<uint64_t>("syscall-cycles", "1");
     stat_int_phys_regs_in_use = registerStatistic<uint64_t>("phys_int_reg_in_use", "1");
     stat_fp_phys_regs_in_use  = registerStatistic<uint64_t>("phys_fp_reg_in_use", "1");
+
+    stat_mem_block_unalloc_seen  = registerStatistic<uint64_t>("mem_block_unalloc_seen", "1");
+    stat_mem_block_out_reg_avail = registerStatistic<uint64_t>("mem_block_out_reg_avail", "1");
+    stat_mem_block_in_raw        = registerStatistic<uint64_t>("mem_block_in_raw", "1");
+    stat_mem_block_out_hazard    = registerStatistic<uint64_t>("mem_block_out_hazard", "1");
+    stat_mem_block_lsq_full      = registerStatistic<uint64_t>("mem_block_lsq_full", "1");
+
+    stat_wbready_int_raw_block   = registerStatistic<uint64_t>("wbready_int_raw_block", "1");
+    stat_wbready_fp_raw_block    = registerStatistic<uint64_t>("wbready_fp_raw_block", "1");
 
     //registerAsPrimaryComponent();
     //primaryComponentDoNotEndSim();
@@ -595,7 +660,8 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                 if ( 0 == resource_check ) // Resources available, can issue
                 {
                     int allocate_fu = 1;
-                    if (ins_type == INST_LOAD || ins_type == INST_STORE || ins_type == INST_FENCE ||
+                    const bool is_mem_op = (ins_type == INST_LOAD || ins_type == INST_STORE || ins_type == INST_FENCE);
+                    if (is_mem_op ||
                         ins_type == INST_ROCC0 || ins_type == INST_ROCC1 || ins_type == INST_ROCC2 || ins_type == INST_ROCC3)
                     {
                         if(unallocated_memory_op_seen) {
@@ -603,10 +669,14 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                             // must be issued to the LSQ in order to maintain memory ordering
                             // semantics
                             allocate_fu = 1;
+                            if (is_mem_op) stat_mem_block_unalloc_seen->addData(1);
 
                         } else {
 
                             allocate_fu = allocateFunctionalUnit(ins);
+                            // resources were fine, so a non-zero allocate_fu here for a
+                            // LOAD/STORE means the LSQ op queue was full
+                            if (is_mem_op && 0 != allocate_fu) stat_mem_block_lsq_full->addData(1);
 
                         }
                     }
@@ -679,6 +749,26 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                         // we have seen a memory operation which is not issued, downstream operations
                         // cannot issue yet to maintain ordering
                         unallocated_memory_op_seen = true;
+
+                        // Classify why checkInstructionResources blocked this mem op (see its
+                        // return codes): 1 = no free output phys reg, 2/3 = an input operand
+                        // (e.g. address reg for a load) still has a pending write, 4/5 = WAW/WAR
+                        // vs an earlier not-yet-issued instruction.
+                        switch (resource_check) {
+                        case 1:
+                            stat_mem_block_out_reg_avail->addData(1);
+                            break;
+                        case 2:
+                        case 3:
+                            stat_mem_block_in_raw->addData(1);
+                            break;
+                        case 4:
+                        case 5:
+                            stat_mem_block_out_hazard->addData(1);
+                            break;
+                        default:
+                            break;
+                        }
                     }
                 }
 
@@ -692,13 +782,25 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                     tmp_not_issued_fp_reg_read[i][ins->getISAFPRegIn(k)] = 1;
                 }
             }
-            // Collect up all integer registers we write to
-            for ( auto k = 0; k < ins->countISAIntRegOut(); ++k ) {
-                tmp_int_reg_write[i][ins->getISAIntRegOut(k)] = 1;
-            }
-            // Collect up all fp registers we write to
-            for ( auto k = 0; k < ins->countISAFPRegOut(); ++k ) {
-                tmp_fp_reg_write[i][ins->getISAFPRegOut(k)] = 1;
+            // Behind reg_ready_at_writeback only, skip already-issued writers when populating the
+            // same-scan WAW/WAR table below. That table only needs to protect a younger
+            // instruction against an OLDER, NOT-YET-ISSUED writer (whose rename hasn't happened
+            // yet); an already-issued older writer has already updated issue_isa_tables, so a
+            // younger consumer naturally sees its new phys reg, and the *value* readiness of that
+            // phys reg is independently handled by the ready-bit path above. Default-off
+            // (reg_ready_at_writeback == false) makes this always false, so
+            // tmp_int_reg_write/tmp_fp_reg_write population is byte-identical to the original,
+            // unconditional behavior on that path.
+            const bool wbready_part2_skip_issued_writer = reg_ready_at_writeback && ins->completedIssue();
+            if ( !wbready_part2_skip_issued_writer ) {
+                // Collect up all integer registers we write to
+                for ( auto k = 0; k < ins->countISAIntRegOut(); ++k ) {
+                    tmp_int_reg_write[i][ins->getISAIntRegOut(k)] = 1;
+                }
+                // Collect up all fp registers we write to
+                for ( auto k = 0; k < ins->countISAFPRegOut(); ++k ) {
+                    tmp_fp_reg_write[i][ins->getISAFPRegOut(k)] = 1;
+                }
             }
             // We issued an instruction this cycle, so exit
             if ( issued_an_ins ) {
@@ -797,6 +899,7 @@ VanadisCore::performExecute(const uint64_t cycle)
             VanadisInstruction* ins = rocc_queues_[i].front();
             register_files[ins->getHWThread()]->setIntReg<uint64_t>(resp->rd, resp->rd_val);
             ins->markExecuted();
+            markPhysRegsReady(ins); // RoCC outputs are retire-gated; no-op either way
             rocc_queues_[i].pop_front();
         }
         roccs_[i]->tick((uint64_t)cycle);
@@ -1088,6 +1191,8 @@ VanadisCore::performRetire(int rob_num, VanadisCircularQueue<VanadisInstruction*
                 #endif
                 ins_retired_this_cycle++;
 
+                reg_ready_checker_.forget(delay_ins);
+                applyMemOrderCheckAtRetire(delay_ins);
                 delete delay_ins;
             }
 
@@ -1133,6 +1238,8 @@ VanadisCore::performRetire(int rob_num, VanadisCircularQueue<VanadisInstruction*
                 stat_branch_mispredicts->addData(1);
             }
 
+            reg_ready_checker_.forget(rob_front);
+            applyMemOrderCheckAtRetire(rob_front);
             delete rob_front;
         }
     }
@@ -1603,6 +1710,79 @@ VanadisCore::tick(SST::Cycle_t cycle)
     }
 }
 
+// Decide whether an instruction's *output* physical registers must stay on the
+// original retire-gated pendingWrites semantics even when reg_ready_at_writeback is on, rather
+// than becoming eligible for the writeback-ready fast path. Kept conservative per design notes:
+// SYSCALL/FENCE/RoCC (handled directly at their call sites; SYSCALL doesn't flow through here at
+// all, see below) and any LL/SC or LOCK-flavoured load/store (AMOs are built from these as
+// micro-op sequences) keep the old behavior. Everything else (plain int/fp arith, branches,
+// ordinary loads/stores) is eligible for the fast path.
+bool
+VanadisCore::wbreadyRequiresRetireGating(VanadisInstruction* ins)
+{
+    switch (ins->getInstFuncType()) {
+    case INST_FENCE:
+    case INST_ROCC0:
+    case INST_ROCC1:
+    case INST_ROCC2:
+    case INST_ROCC3:
+        return true;
+
+    case INST_LOAD: {
+        VanadisLoadInstruction* li = dynamic_cast<VanadisLoadInstruction*>(ins);
+        return (nullptr == li) || (li->getTransactionType() != MEM_TRANSACTION_NONE);
+    }
+
+    case INST_STORE: {
+        VanadisStoreInstruction* si = dynamic_cast<VanadisStoreInstruction*>(ins);
+        return (nullptr == si) || (si->getTransactionType() != MEM_TRANSACTION_NONE);
+    }
+
+    default:
+        return false;
+    }
+}
+
+// mem_order_check retire-time hooks (see vmemordercheck.h). Safe/no-op for every
+// instruction type that never captured anything (not a load/store, trapped before issuing, or an
+// LL/SC/AMO/LOCK op, which is deliberately never captured) -- commitStore()/checkLoad() are
+// themselves no-ops when there is nothing captured for `ins`, and all four calls below are
+// themselves no-ops unless mem_order_check is on.
+void
+VanadisCore::applyMemOrderCheckAtRetire(VanadisInstruction* ins)
+{
+    if ( VanadisStoreInstruction* si = dynamic_cast<VanadisStoreInstruction*>(ins) ) {
+        mem_order_checker_.commitStore(si);
+    }
+    else if ( VanadisLoadInstruction* li = dynamic_cast<VanadisLoadInstruction*>(ins) ) {
+        mem_order_checker_.checkLoad(output, li);
+    }
+    else if ( INST_SYSCALL == ins->getInstFuncType() ) {
+        // The OS can read/write memory this core's own store stream never observed (mmap/brk'd
+        // pages, pipe/file contents, etc). Conservatively drop the whole shadow rather than risk
+        // a false positive; this only costs us checker coverage for a few instructions after the
+        // syscall, not correctness.
+        mem_order_checker_.clearShadow();
+    }
+    mem_order_checker_.forget(ins);
+}
+
+// Marks the physical int/fp output registers of a just-completed instruction ready
+// for the ready-at-writeback path. No-op (and cheap to call unconditionally) unless
+// reg_ready_at_writeback is on.
+void
+VanadisCore::markPhysRegsReady(VanadisInstruction* ins)
+{
+    if (!reg_ready_at_writeback) { return; }
+
+    for (uint16_t i = 0; i < ins->countISAIntRegOut(); ++i) {
+        int_reg_ready_[ins->getPhysIntRegOut(i)] = 1;
+    }
+    for (uint16_t i = 0; i < ins->countISAFPRegOut(); ++i) {
+        fp_reg_ready_[ins->getPhysFPRegOut(i)] = 1;
+    }
+}
+
 int
 VanadisCore::checkInstructionResources(
     VanadisInstruction* ins, VanadisRegisterStack* int_regs, VanadisRegisterStack* fp_regs, VanadisISATable* isa_table)
@@ -1643,9 +1823,27 @@ VanadisCore::checkInstructionResources(
     // If there are any pending writes against our reads, we can't issue until
     // they are done
 
+    // SYSCALL/FENCE always keep the original retire-gated check for their own
+    // inputs too (belt-and-suspenders safety net; SYSCALL also never reaches here as a *mem op*
+    // consumer path and FENCE inputs, if any, are rare/none in practice).
+    const bool wbready_consumer_eligible = reg_ready_at_writeback &&
+        (ins->getInstFuncType() != INST_SYSCALL) && (ins->getInstFuncType() != INST_FENCE);
+
     for ( uint16_t i = 0; i < int_reg_in_count; ++i ) {
         const uint16_t ins_isa_reg = ins->getISAIntRegIn(i);
-        resources_good &= (!isa_table->pendingIntWrites(ins_isa_reg)) && (!int_reg_write[ins_isa_reg]);
+        bool input_pending;
+        if ( wbready_consumer_eligible ) {
+            const uint16_t phys_reg = isa_table->getIntPhysReg(ins_isa_reg);
+            if ( int_reg_needs_retire_[phys_reg] ) {
+                input_pending = isa_table->pendingIntWrites(ins_isa_reg);
+            } else {
+                input_pending = !int_reg_ready_[phys_reg];
+                if ( input_pending ) { stat_wbready_int_raw_block->addData(1); }
+            }
+        } else {
+            input_pending = isa_table->pendingIntWrites(ins_isa_reg);
+        }
+        resources_good &= (!input_pending) && (!int_reg_write[ins_isa_reg]);
     }
 
     #ifdef VANADIS_BUILD_DEBUG
@@ -1659,7 +1857,19 @@ VanadisCore::checkInstructionResources(
 
     for ( uint16_t i = 0; i < fp_reg_in_count; ++i ) {
         const uint16_t ins_isa_reg = ins->getISAFPRegIn(i);
-        resources_good &= (!isa_table->pendingFPWrites(ins_isa_reg)) & (!fp_reg_write[ins_isa_reg]);
+        bool input_pending;
+        if ( wbready_consumer_eligible ) {
+            const uint16_t phys_reg = isa_table->getFPPhysReg(ins_isa_reg);
+            if ( fp_reg_needs_retire_[phys_reg] ) {
+                input_pending = isa_table->pendingFPWrites(ins_isa_reg);
+            } else {
+                input_pending = !fp_reg_ready_[phys_reg];
+                if ( input_pending ) { stat_wbready_fp_raw_block->addData(1); }
+            }
+        } else {
+            input_pending = isa_table->pendingFPWrites(ins_isa_reg);
+        }
+        resources_good &= (!input_pending) & (!fp_reg_write[ins_isa_reg]);
     }
 
     #ifdef VANADIS_BUILD_DEBUG
@@ -1709,6 +1919,72 @@ VanadisCore::checkInstructionResources(
     return 0;
 }
 
+// See vanadis.h for the full rationale. Debug-only, gated by reg_ready_check; a no-op (not even
+// a ROB scan) when that param is off.
+void
+VanadisCore::debugCheckRenameConsistency(
+    const int hw_thr, VanadisInstruction* ins, uint16_t isa_reg, uint16_t captured_phys_reg, bool is_int)
+{
+    if ( !reg_ready_check ) { return; }
+
+    VanadisCircularQueue<VanadisInstruction*>* thr_rob = rob[hw_thr];
+    const auto rob_size = thr_rob->size();
+
+    VanadisInstruction* last_issued_writer = nullptr;
+    uint16_t            last_issued_writer_out_idx = 0;
+
+    for ( uint32_t j = 0; j < rob_size; ++j ) {
+        VanadisInstruction* scan_ins = thr_rob->peekAt(j);
+        if ( scan_ins == ins ) { break; } // reached the consumer itself; stop scanning
+
+        const uint16_t out_count = is_int ? scan_ins->countISAIntRegOut() : scan_ins->countISAFPRegOut();
+        for ( uint16_t k = 0; k < out_count; ++k ) {
+            const uint16_t out_isa = is_int ? scan_ins->getISAIntRegOut(k) : scan_ins->getISAFPRegOut(k);
+            if ( out_isa == isa_reg ) {
+                if ( scan_ins->completedIssue() ) {
+                    last_issued_writer = scan_ins;
+                    last_issued_writer_out_idx = k;
+                }
+                break;
+            }
+        }
+    }
+
+    if ( nullptr != last_issued_writer ) {
+        const uint16_t expect_phys = is_int
+            ? last_issued_writer->getPhysIntRegOut(last_issued_writer_out_idx)
+            : last_issued_writer->getPhysFPRegOut(last_issued_writer_out_idx);
+
+        if ( expect_phys != captured_phys_reg ) {
+            output->fatal(
+                CALL_INFO, -1,
+                "reg_ready_check: STALE RENAME: ins 0x%" PRI_ADDR " (hw_thr %d) captured %s isa reg %" PRIu16
+                " -> phys reg %" PRIu16 " at issue, but the nearest strictly-older already-issued writer in the "
+                "ROB (ins 0x%" PRI_ADDR ") renamed that isa reg to phys reg %" PRIu16 ". This consumer captured a "
+                "STALE mapping (an even older producer) instead of the one program order says it should see.\n",
+                ins->getInstructionAddress(), hw_thr, is_int ? "int" : "fp", isa_reg, captured_phys_reg,
+                last_issued_writer->getInstructionAddress(), expect_phys);
+        }
+    }
+    else {
+        // No writer of isa_reg anywhere in the current ROB window before ins -- the mapping must
+        // trace back to whatever was last actually retired for that ISA register.
+        VanadisISATable* retire_table = retire_isa_tables[hw_thr];
+        const uint16_t retired_phys =
+            is_int ? retire_table->getIntPhysReg(isa_reg) : retire_table->getFPPhysReg(isa_reg);
+
+        if ( retired_phys != captured_phys_reg ) {
+            output->fatal(
+                CALL_INFO, -1,
+                "reg_ready_check: STALE RENAME (vs retired state): ins 0x%" PRI_ADDR " (hw_thr %d) captured %s isa "
+                "reg %" PRIu16 " -> phys reg %" PRIu16 " at issue, but no writer of that isa reg exists in-ROB "
+                "before it and the retired mapping for that isa reg is phys reg %" PRIu16 ". Mismatch.\n",
+                ins->getInstructionAddress(), hw_thr, is_int ? "int" : "fp", isa_reg, captured_phys_reg,
+                retired_phys);
+        }
+    }
+}
+
 int
 VanadisCore::assignRegistersToInstruction(
     const uint16_t int_reg_count, const uint16_t fp_reg_count, VanadisInstruction* ins, VanadisRegisterStack* int_regs,
@@ -1738,6 +2014,8 @@ VanadisCore::assignRegistersToInstruction(
 
         ins->setPhysIntRegIn(i, phys_reg_in);
         isa_table->incIntRead(isa_reg_in);
+        reg_ready_checker_.captureIntIn(ins, phys_reg_in);
+        debugCheckRenameConsistency(ins->getHWThread(), ins, isa_reg_in, phys_reg_in, true);
     }
 
     for ( uint16_t i = 0; i < ins->countISAFPRegIn(); ++i ) {
@@ -1759,6 +2037,8 @@ VanadisCore::assignRegistersToInstruction(
 
         ins->setPhysFPRegIn(i, phys_reg_in);
         isa_table->incFPRead(isa_reg_in);
+        reg_ready_checker_.captureFPIn(ins, phys_reg_in);
+        debugCheckRenameConsistency(ins->getHWThread(), ins, isa_reg_in, phys_reg_in, false);
     }
 
     // PROCESS OUTPUT REGISTERS
@@ -1785,6 +2065,12 @@ VanadisCore::assignRegistersToInstruction(
 
             ins->setPhysIntRegOut(i, out_reg);
             isa_table->incIntWrite(ins_isa_reg);
+
+            // SYSCALL reuses the existing phys reg (no rename) and relies on the OS handler to
+            // write it asynchronously, well after this point. Force consumers back onto the
+            // original retire-gated pendingWrites check for this phys reg (the ready bit, if
+            // any, is stale/irrelevant once this flag is set).
+            if ( reg_ready_at_writeback ) { int_reg_needs_retire_[out_reg] = 1; }
         }
 
         // Set current ISA registers required for output
@@ -1801,6 +2087,8 @@ VanadisCore::assignRegistersToInstruction(
 
             ins->setPhysFPRegOut(i, out_reg);
             isa_table->incFPWrite(ins_isa_reg);
+
+            if ( reg_ready_at_writeback ) { fp_reg_needs_retire_[out_reg] = 1; }
         }
     }
     else {
@@ -1829,6 +2117,21 @@ VanadisCore::assignRegistersToInstruction(
             isa_table->incIntWrite(ins_isa_reg);
 
             ins->setPhysIntRegOut(i, out_reg);
+            reg_ready_checker_.allocateIntOut(ins, out_reg);
+
+            // This phys reg has just been (re)allocated as a destination at issue, so it is not
+            // ready until the producer actually writes it back. This renaming scheme pops a
+            // brand-new, real physical register for every instruction's output, including one
+            // targeting the ISA "ignore writes" register (x0 on RISC-V), and makes that phys reg
+            // the *current* mapping for x0 -- visible to any later instruction that reads x0 as a
+            // source (e.g. the "li"/"addi rd, x0, imm" idiom). x0 therefore has nothing
+            // architecturally special at the physical-register layer and must not be marked ready
+            // early: it is treated exactly like every other destination, becoming ready only at
+            // its actual writeback (normal FU/LSQ markRegsReadyIfEnabled hook).
+            if ( reg_ready_at_writeback ) {
+                int_reg_ready_[out_reg] = 0;
+                int_reg_needs_retire_[out_reg] = wbreadyRequiresRetireGating(ins) ? 1 : 0;
+            }
         }
 
         // Set current ISA registers required for output
@@ -1856,6 +2159,13 @@ VanadisCore::assignRegistersToInstruction(
             isa_table->incFPWrite(ins_isa_reg);
 
             ins->setPhysFPRegOut(i, out_reg);
+            reg_ready_checker_.allocateFPOut(ins, out_reg);
+
+            // FP has no "ignore writes" register, just the normal clear-on-alloc.
+            if ( reg_ready_at_writeback ) {
+                fp_reg_ready_[out_reg] = 0;
+                fp_reg_needs_retire_[out_reg] = wbreadyRequiresRetireGating(ins) ? 1 : 0;
+            }
         }
     }
 
@@ -2139,6 +2449,28 @@ VanadisCore::handleMisspeculate(const uint32_t hw_thr, const uint64_t new_ip)
 
     // Reset the ISA table to get correct ISA to physical mappings
     issue_isa_tables[hw_thr]->reset(retire_isa_tables[hw_thr]);
+
+    // Every phys reg the (just-reset) issue table now points to is, by definition,
+    // part of the committed architectural state held by retire_isa_tables[hw_thr] -- its value is
+    // correct and final. Any in-flight producer that *used to* target that ISA register (and may
+    // have had a different, now-squashed, phys reg allocated) was just deleted above in
+    // clearROBMisspeculate() and will never run markPhysRegsReady()/markRegReadyIfEnabled() for
+    // it. So force the ready bit on (and drop any stale retire-gating) for exactly the phys regs
+    // the reset mapping exposes, otherwise a consumer issued after the flush could wait forever
+    // on a producer that no longer exists.
+    if ( reg_ready_at_writeback ) {
+        for ( uint16_t isa_reg = 0; isa_reg < thread_decoders[hw_thr]->countISAIntReg(); ++isa_reg ) {
+            const uint16_t phys_reg = retire_isa_tables[hw_thr]->getIntPhysReg(isa_reg);
+            int_reg_ready_[phys_reg] = 1;
+            int_reg_needs_retire_[phys_reg] = 0;
+        }
+        for ( uint16_t isa_reg = 0; isa_reg < thread_decoders[hw_thr]->countISAFPReg(); ++isa_reg ) {
+            const uint16_t phys_reg = retire_isa_tables[hw_thr]->getFPPhysReg(isa_reg);
+            fp_reg_ready_[phys_reg] = 1;
+            fp_reg_needs_retire_[phys_reg] = 0;
+        }
+    }
+
     thread_decoders[hw_thr]->setInstructionPointerAfterMisspeculate(new_ip);
 
     #ifdef VANADIS_BUILD_DEBUG
@@ -2170,6 +2502,10 @@ VanadisCore::clearROBMisspeculate(const uint32_t hw_thr)
         if ( next_ins->completedIssue() )  {
             next_ins->returnOutRegs( int_register_stack, fp_register_stack  );
         }
+        reg_ready_checker_.forget(next_ins);
+        // This instruction is being squashed, not retired -- just drop any in-flight capture
+        // (no commit/check; it never architecturally happened).
+        mem_order_checker_.forget(next_ins);
         delete next_ins;
     }
 
@@ -2205,6 +2541,7 @@ VanadisCore::syscallReturn(uint32_t thr)
         syscall_ins->getInstructionAddress());
     #endif
     syscall_ins->markExecuted();
+    markPhysRegsReady(syscall_ins); // syscall outputs are retire-gated; no-op either way
 
     if ( UNLIKELY( nullptr != m_checkpointing ) ) {
         if ( m_checkpointing[thr] ) {
