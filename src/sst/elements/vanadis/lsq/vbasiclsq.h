@@ -79,7 +79,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                                     { "split_stores", "Count the number of stores which are fractured due to cache boundaries", "operations", 1},
                                     { "split_loads", "Count the number of loads which are fractured due to cache boundaries", "operations", 1},
                                     { "lsq_front_not_issued", "attempt_to_issue calls where op_q_ front has not completedIssue() yet", "attempts", 1},
-                                    { "lsq_load_max_loads", "attempt_to_issue LOAD blocked because loads_pending_ (in-flight to memory) is at max_loads_", "attempts", 1})
+                                    { "lsq_load_max_loads", "attempt_to_issue LOAD blocked because loads_pending_ (in-flight to memory) is at max_loads_", "attempts", 1},
+                                    { "store_conflict_block", "attempt_to_issue LOAD blocked because checkStoreConflict() found an address-overlapping pending/in-flight store", "attempts", 1})
 
 
         VanadisBasicLoadStoreQueue(ComponentId_t id, Params& params, int coreid, int hwthreads) : VanadisLoadStoreQueue(id, params, coreid, hwthreads),
@@ -123,6 +124,7 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
 
             stat_lsq_front_not_issued_ = registerStatistic<uint64_t>("lsq_front_not_issued", "1");
             stat_lsq_load_max_loads_ = registerStatistic<uint64_t>("lsq_load_max_loads", "1");
+            stat_store_conflict_block_ = registerStatistic<uint64_t>("store_conflict_block", "1");
         }
 
 
@@ -540,8 +542,12 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                         #endif
 
                         load_ins->markExecuted();
+                        // stage_trace: the load's response has been fully processed (and this is
+                        // also its writeback point -- the register file was just written above).
+                        lsq_->noteMemRespIfEnabled(load_ins);
                         lsq_->markRegReadyIfEnabled(load_ins);
                         lsq_->checkRegReadyWriteIfEnabled(load_ins);
+                        lsq_->noteWritebackIfEnabled(load_ins);
                         lsq_->stat_loads_executed_->addData(1);
                         lsq_->loads_pending_.erase(load_itr);
                         delete load_entry;
@@ -721,10 +727,16 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                         #endif
                         delete current_store;
 
+                        // stage_trace: ordinary (non-LLSC) stores are fire-and-forget here --
+                        // dispatch, completion and writeback are all this same cycle.
+                        noteLsqSendIfEnabled(store_ins);
+                        noteMemRespIfEnabled(store_ins);
+
                         // mark executed
                         store_ins->markExecuted();
                         markRegReadyIfEnabled(store_ins);
                         checkRegReadyWriteIfEnabled(store_ins);
+                        noteWritebackIfEnabled(store_ins);
                         #ifdef VANADIS_BUILD_DEBUG
                         output_->verbose(CALL_INFO, 16, VANADIS_DBG_LSQ_STORE_FLG, "---> issued store: 0x%" PRI_ADDR " / hw_thr: %" PRIu32 " / sw_thr: %" PRIu32 " / numStores: %" PRIu32 "\n",
                                 store_ins->getInstructionAddress(), store_ins->getHWThread(),current_store->getSWThr(), store_ins->getNumStores());
@@ -1279,6 +1291,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
 
                     if(result)
                     {
+                        // stage_trace: the instant this load is actually dispatched to memory.
+                        noteLsqSendIfEnabled(load_ins);
                         // pop front entry and tell the caller we did something (true)
                         delete op_q_[thr].front();
                         op_q_[thr].pop_front();
@@ -1427,6 +1441,7 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                 // we have pending, if yes, wait for conflict to clear and then we can proceed
                 if(UNLIKELY(checkStoreConflict(load_ins->getHWThread(), load_address, load_width)))
                 {
+                    stat_store_conflict_block_->addData(1);
                     #ifdef VANADIS_BUILD_DEBUG
                     if(output_->getVerboseLevel() >= 16)
                     {
@@ -1656,6 +1671,7 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
         Statistic<uint64_t>* stat_op_q_size_;
         Statistic<uint64_t>* stat_lsq_front_not_issued_;
         Statistic<uint64_t>* stat_lsq_load_max_loads_;
+        Statistic<uint64_t>* stat_store_conflict_block_;
         Statistic<uint64_t>* stat_stores_pending_;
         Statistic<uint64_t>* stat_loads_pending_;
         Statistic<uint64_t>* stat_stores_issued_;

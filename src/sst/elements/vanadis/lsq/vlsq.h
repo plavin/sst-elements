@@ -25,6 +25,7 @@
 #include "inst/vstore.h"
 #include "../vregreadycheck.h"
 #include "../vmemordercheck.h"
+#include "../vpipelinetrace.h"
 
 #include <cassert>
 #include <cinttypes>
@@ -106,6 +107,10 @@ public:
     // Wires up the memory-order shadow checker (no-op unless its own "mem_order_check" debug
     // param is on; see ../vmemordercheck.h).
     void setMemOrderChecker(VanadisMemOrderChecker* checker) { mem_order_checker_ = checker; }
+
+    // Wires up the debug-only stage-timestamp dumper (no-op unless its own "stage_trace" debug
+    // param is on; see ../vpipelinetrace.h).
+    void setPipelineTracer(VanadisPipelineTracer* tracer) { pipeline_tracer_ = tracer; }
 
     void setCoreId( int core ) { core_id_ = core; }
     int getCoreId( ) { return core_id_; }
@@ -232,6 +237,21 @@ protected:
         if ( nullptr != mem_order_checker_ ) { mem_order_checker_->invalidateRange(address, width); }
     }
 
+    // stage_trace hooks (no-ops unless "stage_trace" is on; see ../vpipelinetrace.h). Call
+    // noteLsqSendIfEnabled the instant a load/store request is actually dispatched to the memory
+    // system, and noteMemRespIfEnabled when it completes there (for an ordinary store this is the
+    // same cycle as the send, since issueStoreFront() is fire-and-forget).
+    void noteLsqSendIfEnabled(VanadisInstruction* ins) {
+        if ( nullptr != pipeline_tracer_ ) { pipeline_tracer_->noteLsqSend(ins); }
+    }
+    void noteMemRespIfEnabled(VanadisInstruction* ins) {
+        if ( nullptr != pipeline_tracer_ ) { pipeline_tracer_->noteMemResp(ins); }
+    }
+    // Call alongside markRegReadyIfEnabled above -- this is the LSQ-side writeback point.
+    void noteWritebackIfEnabled(VanadisInstruction* ins) {
+        if ( nullptr != pipeline_tracer_ ) { pipeline_tracer_->noteWriteback(ins); }
+    }
+
     std::deque<uint64_t> dbg_ins_addrs_;
     std::deque<uint64_t> dbg_addrs_;
     uint32_t core_id_;
@@ -245,6 +265,7 @@ protected:
     const bool* reg_ready_at_writeback_ = nullptr;
     VanadisRegReadyChecker* reg_ready_checker_ = nullptr;
     VanadisMemOrderChecker* mem_order_checker_ = nullptr;
+    VanadisPipelineTracer* pipeline_tracer_ = nullptr;
 };
 
 } // namespace Vanadis

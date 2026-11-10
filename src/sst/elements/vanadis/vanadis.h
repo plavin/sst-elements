@@ -29,6 +29,7 @@
 #include "vfuncunit.h"
 #include "vregreadycheck.h"
 #include "vmemordercheck.h"
+#include "vpipelinetrace.h"
 #include "rocc/vroccinterface.h"
 #include "rocc/vbasicrocc.h"
 
@@ -166,7 +167,18 @@ public:
                               "store stream and fatal()s with full timing diagnostics on the first provable "
                               "memory-ordering violation (a load retiring with a value stale relative to program "
                               "order). Purely observational: it never changes issue/execute/retire control flow, "
-                              "so leaving it off (default) or on cannot change simulated cycle counts.", "false"}  )
+                              "so leaving it off (default) or on cannot change simulated cycle counts.", "false"},
+        { "stage_trace", "Debug-only, default off. When true (and stage_trace_count > 0), dumps a "
+                          "STAGETRACE,... line per retiring instruction (within the stage_trace_skip/"
+                          "stage_trace_count window) with the cycle it was first seen by issue, issued, "
+                          "(loads/stores) sent to memory, (loads/stores) completed in memory, written back, "
+                          "and retired (see vpipelinetrace.h). Purely observational bookkeeping plus a printf; "
+                          "it never changes issue/execute/retire control flow, so leaving it off (default) or "
+                          "on cannot change simulated cycle counts.", "false"},
+        { "stage_trace_skip", "Debug-only. Number of retiring instructions to skip before stage_trace starts "
+                               "dumping (to get past boot/startup).", "0"},
+        { "stage_trace_count", "Debug-only. Number of retiring instructions to dump after stage_trace_skip. "
+                                "0 (the default) means dump nothing even if stage_trace is on.", "0"}  )
 
     SST_ELI_DOCUMENT_STATISTICS(
         { "cycles", "Number of cycles the core executed", "cycles", 1 },
@@ -383,6 +395,11 @@ private:
     // (reads/writes nothing, cannot affect cycle counts) unless mem_order_check is true.
     bool mem_order_check = false;
     VanadisMemOrderChecker mem_order_checker_;
+
+    // Debug-only per-instruction stage-timestamp dumper ("stage_trace" param, default off; see
+    // vpipelinetrace.h). Entirely no-op (not even a map lookup) unless stage_trace is true.
+    bool stage_trace = false;
+    VanadisPipelineTracer pipeline_tracer_;
 
     std::vector<VanadisISATable*> issue_isa_tables;
     std::vector<VanadisISATable*> retire_isa_tables;

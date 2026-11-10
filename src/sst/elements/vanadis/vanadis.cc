@@ -168,6 +168,15 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
     mem_order_check = params.find<bool>("mem_order_check", false);
     mem_order_checker_.configure(&mem_order_check, &current_cycle);
 
+    // Debug-only per-instruction stage-timestamp dumper (default off, see "stage_trace" param
+    // and vpipelinetrace.h).
+    stage_trace = params.find<bool>("stage_trace", false);
+    {
+        const uint64_t stage_trace_skip = params.find<uint64_t>("stage_trace_skip", 0);
+        const uint64_t stage_trace_count = params.find<uint64_t>("stage_trace_count", 0);
+        pipeline_tracer_.configure(&stage_trace, &current_cycle, stage_trace_skip, stage_trace_count);
+    }
+
     // Create the decoder(s) - one per HW thread
     SubComponentSlotInfo * decoders = getSubComponentSlotInfo("decoder");
     for ( uint32_t i = 0; i < hw_threads; ++i ) {
@@ -316,6 +325,7 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
     lsq->setRegReadyBits(&int_reg_ready_, &fp_reg_ready_, &reg_ready_at_writeback);
     lsq->setRegReadyChecker(&reg_ready_checker_);
     lsq->setMemOrderChecker(&mem_order_checker_);
+    lsq->setPipelineTracer(&pipeline_tracer_);
 
     //////////////////////////////////////////////////////////////////////////////////////
     SubComponentSlotInfo * lists = getSubComponentSlotInfo("rocc");
@@ -395,6 +405,7 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
         for ( VanadisFunctionalUnit* fu : *fu_vec_ptr ) {
             fu->setRegReadyBits(&int_reg_ready_, &fp_reg_ready_, &reg_ready_at_writeback);
             fu->setRegReadyChecker(&reg_ready_checker_);
+            fu->setPipelineTracer(&pipeline_tracer_);
         }
     }
 
@@ -629,6 +640,9 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
 
             if ( ! ins->completedIssue() )
             {
+                // stage_trace: first time this instruction is examined by the issue-stage scan.
+                pipeline_tracer_.noteSeen(ins);
+
                 #ifdef VANADIS_BUILD_DEBUG
                 if ( output_verbosity >= 8 )
                 {
@@ -722,6 +736,9 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                         ins->markIssued();
                         ins_issued_this_cycle++;
                         issued_an_ins = true;
+                        // stage_trace: checkInstructionResources passed and the instruction was
+                        // allocated.
+                        pipeline_tracer_.noteIssue(ins);
                     }
                     else
                     {
@@ -1193,6 +1210,7 @@ VanadisCore::performRetire(int rob_num, VanadisCircularQueue<VanadisInstruction*
 
                 reg_ready_checker_.forget(delay_ins);
                 applyMemOrderCheckAtRetire(delay_ins);
+                pipeline_tracer_.noteRetireAndMaybePrint(delay_ins);
                 delete delay_ins;
             }
 
@@ -1240,6 +1258,7 @@ VanadisCore::performRetire(int rob_num, VanadisCircularQueue<VanadisInstruction*
 
             reg_ready_checker_.forget(rob_front);
             applyMemOrderCheckAtRetire(rob_front);
+            pipeline_tracer_.noteRetireAndMaybePrint(rob_front);
             delete rob_front;
         }
     }
@@ -2506,6 +2525,7 @@ VanadisCore::clearROBMisspeculate(const uint32_t hw_thr)
         // This instruction is being squashed, not retired -- just drop any in-flight capture
         // (no commit/check; it never architecturally happened).
         mem_order_checker_.forget(next_ins);
+        pipeline_tracer_.forget(next_ins);
         delete next_ins;
     }
 

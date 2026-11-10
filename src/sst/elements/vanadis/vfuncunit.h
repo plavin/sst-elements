@@ -23,6 +23,7 @@
 
 #include "inst/vinst.h"
 #include "vregreadycheck.h"
+#include "vpipelinetrace.h"
 
 
 namespace SST {
@@ -89,6 +90,10 @@ public:
     // param is on; see vregreadycheck.h).
     void setRegReadyChecker(VanadisRegReadyChecker* checker) { reg_ready_checker_ = checker; }
 
+    // Wires up the debug-only stage-timestamp dumper (no-op unless its own "stage_trace" debug
+    // param is on; see vpipelinetrace.h).
+    void setPipelineTracer(VanadisPipelineTracer* tracer) { pipeline_tracer_ = tracer; }
+
     void tick(const uint64_t cycle, SST::Output* output, std::vector<VanadisRegisterFile*>& regFile) {
         int k_in=0;
         for(auto q_itr = pending_execute.begin(); q_itr != pending_execute.end();) {
@@ -113,6 +118,8 @@ public:
                     // ready-at-writeback path.
                     markRegsReadyIfEnabled(inner_ins);
                     if ( nullptr != reg_ready_checker_ ) { reg_ready_checker_->checkWrite(output, inner_ins); }
+                    // stage_trace: this is the writeback point regardless of reg_ready_at_writeback.
+                    if ( nullptr != pipeline_tracer_ ) { pipeline_tracer_->noteWriteback(inner_ins); }
 
                     // Delete the record entry for functional unit if the instruction marked itself executed
                     delete q_item;
@@ -189,6 +196,7 @@ private:
     std::vector<uint8_t>* fp_reg_ready_ = nullptr;
     const bool* reg_ready_at_writeback_ = nullptr;
     VanadisRegReadyChecker* reg_ready_checker_ = nullptr;
+    VanadisPipelineTracer* pipeline_tracer_ = nullptr;
 };
 
 } // namespace Vanadis

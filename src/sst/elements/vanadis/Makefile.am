@@ -126,6 +126,7 @@ vinsbundle.h \
 vinsloader.h \
 vmemordercheck.h \
 vregreadycheck.h \
+vpipelinetrace.h \
 \
 os/vappruntimememory.h \
 os/vcheckpointreq.h \
