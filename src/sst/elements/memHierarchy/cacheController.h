@@ -80,6 +80,7 @@ public:
             {"slice_allocation_policy", "(string) Policy for allocating addresses among distributed shared cache. Options: rr[round-robin]", "rr"},
             {"maxRequestDelay",         "(uint) Set an error timeout if memory requests take longer than this in ns (0: disable)", "0"},
             {"snoop_l1_invalidations",  "(bool) Forward invalidations from L1s to processors. Options: 0[off], 1[on]", "false"},
+            {"pipeline_line_access",    "(bool) Model the data array as pipelined: don't serialize a hit's response behind the access latency of a prior hit to the same line. Only mesi_l1 implements this. Options: 0[off], 1[on]", "false"},
             {"llsc_block_cycles",       "(uint64_t) Number of cycles to prevent competing access to an LL/LR line. Encourages forward progress", "0"},
             {"debug",                   "(uint) Where to send output. Options: 0[no output], 1[stdout], 2[stderr], 3[file]", "0"},
             {"debug_level",             "(uint) Debugging level: 0 to 10. Must configure sst-core with '--enable-debug'. 1=info, 2-10=debug output", "0"},

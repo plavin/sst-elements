@@ -280,6 +280,7 @@ private:
     bool flush_drain_;
     Cycle_t flush_complete_timestamp_;
     bool snoop_l1_invs_;
+    bool pipeline_line_access_; // if true, don't serialize hit response timing behind prior accesses to the same line (see sendResponseUp); default off
     State protocol_read_state_;   // E for MESI, S for MSI
     State protocol_exclusive_state_;   // E for MESI, M for MSI
     Cycle_t llsc_block_cycles_;

@@ -35,6 +35,7 @@ MESIL1::MESIL1(ComponentId_t id, Params& params, Params& owner_params, bool pref
     params.insert(owner_params);
 
     snoop_l1_invs_ = params.find<bool>("snoop_l1_invalidations", false);
+    pipeline_line_access_ = params.find<bool>("pipeline_line_access", false);
     bool MESI = params.find<bool>("protocol", true);
     llsc_block_cycles_ = params.find<Cycle_t>("llsc_block_cycles", 0);
 
@@ -1840,7 +1841,11 @@ uint64_t MESIL1::sendResponseUp(MemEvent* event, vector<uint8_t>* data, bool in_
 
     // Compute latency, accounting for serialization of requests to the address
     uint64_t delivery_time = latency;
-    if (time < timestamp_)
+    if (pipeline_line_access_) {
+        // Pipelined data array: completion depends only on when this access started
+        // (timestamp_), not on when a prior access to the same line finished (time).
+        delivery_time += timestamp_;
+    } else if (time < timestamp_)
         delivery_time += timestamp_;
     else delivery_time += time;
     forwardByDestination(response_event, delivery_time);
@@ -2126,6 +2131,7 @@ void MESIL1::serialize_order(SST::Core::Serialization::serializer& ser) {
     SST_SER(flush_drain_);
     SST_SER(flush_complete_timestamp_);
     SST_SER(snoop_l1_invs_);
+    SST_SER(pipeline_line_access_);
     SST_SER(protocol_exclusive_state_);
     SST_SER(protocol_read_state_);
     SST_SER(llsc_block_cycles_);
