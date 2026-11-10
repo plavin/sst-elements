@@ -140,6 +140,10 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
     fp_reg_ready_.assign(fp_reg_count, 1);
     int_reg_needs_retire_.assign(int_reg_count, 0);
     fp_reg_needs_retire_.assign(fp_reg_count, 0);
+    // rename_in_order only; see vanadis.h. Starts "retired" (committed/reset state), same
+    // reasoning as int_reg_ready_'s initial value above.
+    int_reg_retired_.assign(int_reg_count, 1);
+    fp_reg_retired_.assign(fp_reg_count, 1);
 
     // Shadow checker (debug-only, default off, see "reg_ready_check" param and
     // vregreadycheck.h). Generation starts at 0 for every phys reg (bumped to 1 the first time
@@ -429,6 +433,22 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
     output->verbose(CALL_INFO, 8, 0, "-> Decodes/cycle:                %" PRIu32 "\n", decodes_per_cycle);
     output->verbose(CALL_INFO, 8, 0, "-> Retires/cycle:                %" PRIu32 "\n", retires_per_cycle);
 
+    // In-order rename stage, default off. See "rename_in_order" param / vanadis.h for the design
+    // writeup. Requires reg_ready_at_writeback: issue, with this on, decides readiness purely from
+    // the physical-register ready bits (plus the existing retire-gated cases) instead of the
+    // ISA-indexed WAR/WAW tmp-table checks, so there is no safe way to run it without that
+    // mechanism already in place.
+    rename_in_order = params.find<bool>("rename_in_order", false);
+    rename_width    = params.find<uint32_t>("rename_width", decodes_per_cycle);
+    if ( rename_in_order && !reg_ready_at_writeback ) {
+        output->fatal(
+            CALL_INFO, -1,
+            "Error (%s): 'rename_in_order' requires 'reg_ready_at_writeback=true' (issue's readiness "
+            "check under rename_in_order relies entirely on the physical-register ready-bit "
+            "mechanism reg_ready_at_writeback provides).\n",
+            getName().c_str());
+    }
+
     std::string pipeline_trace_path = params.find<std::string>("pipeline_trace_file", "");
 
     if ( pipeline_trace_path == "" ) {
@@ -469,6 +489,9 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
 
     stat_wbready_int_raw_block   = registerStatistic<uint64_t>("wbready_int_raw_block", "1");
     stat_wbready_fp_raw_block    = registerStatistic<uint64_t>("wbready_fp_raw_block", "1");
+
+    stat_rename_stall_no_regs   = registerStatistic<uint64_t>("rename_stall_no_regs", "1");
+    stat_renamed_not_issued     = registerStatistic<uint64_t>("renamed_not_issued", "1");
 
     //registerAsPrimaryComponent();
     //primaryComponentDoNotEndSim();
@@ -609,6 +632,59 @@ VanadisCore::resetRegisterUseTemps(const int hw_thr, const uint16_t int_reg_coun
     std::memset(tmp_fp_reg_write[hw_thr], 0, fp_reg_count);
 }
 
+// In-order rename stage, default off (see "rename_in_order" param). No-op unless
+// rename_in_order is on. Walks hw thread hwThr's ROB from the front, skipping instructions that
+// are already completedRename(), and calls assignRegistersToInstruction for up to rename_width
+// not-yet-renamed instructions, stopping early at the first instruction that either lacks a free
+// physical register or is a SYSCALL/RoCC instruction (left, along with everything younger, for
+// the old combined check+rename-at-issue path in performIssue).
+void
+VanadisCore::performRename(const uint64_t cycle, int hwThr)
+{
+    if ( !rename_in_order ) { return; }
+    if ( halted_masks[hwThr] ) { return; }
+
+    VanadisCircularQueue<VanadisInstruction*>* thr_rob = rob[hwThr];
+    const auto rob_size = thr_rob->size();
+    uint32_t renamed_this_cycle = 0;
+
+    for ( uint32_t j = 0; j < rob_size && renamed_this_cycle < rename_width; ++j ) {
+        VanadisInstruction* ins = thr_rob->peekAt(j);
+
+        // Already renamed (earlier this cycle or a previous one), or already issued via the old
+        // combined check-and-rename-at-issue fallback path in performIssue (can happen if this
+        // instruction's rename was deferred past a SYSCALL/RoCC ahead of it, or past a rename_width
+        // budget stall, in some earlier cycle, and performIssue's fallback handled it directly) --
+        // either way its physical registers are already assigned; move on without re-renaming it
+        // or stopping the walk.
+        if ( ins->completedRename() || ins->completedIssue() ) { continue; }
+
+        const auto ft = ins->getInstFuncType();
+        if ( ft == INST_SYSCALL || (ft >= INST_ROCC0 && ft <= INST_ROCC3) ) {
+            // Conservative: keep SYSCALL/RoCC on the old combined check+rename-at-issue path
+            // (SYSCALL requests every ISA register and never pops new phys regs; RoCC dispatches
+            // to the accelerator from inside assignRegistersToInstruction, which must stay
+            // coincident with actual issue, not a speculative rename ahead of it). Stop the whole
+            // rename walk here; it will resume naturally once this instruction (and therefore
+            // everything behind it) has actually issued.
+            break;
+        }
+
+        if ( !((int_register_stack->unused() >= ins->countISAIntRegOut()) &&
+               (fp_register_stack->unused()  >= ins->countISAFPRegOut())) ) {
+            stat_rename_stall_no_regs->addData(1);
+            break;
+        }
+
+        assignRegistersToInstruction(
+            thread_decoders[hwThr]->countISAIntReg(), thread_decoders[hwThr]->countISAFPReg(), ins,
+            int_register_stack, fp_register_stack, issue_isa_tables[hwThr]);
+
+        ins->markRenamed();
+        ++renamed_this_cycle;
+    }
+}
+
 int
 VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, int& unallocated_memory_op_seen)
 {
@@ -655,8 +731,14 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                     }
                 }
                 #endif
+                // rename_in_order: an instruction already renamed by performRename skips the
+                // ISA-indexed WAW/WAR tmp-table checks and relies on the physical-register ready
+                // bits (see checkInstructionResources). Anything not yet renamed -- always true
+                // when rename_in_order is off, and also true for SYSCALL/RoCC -- falls back to
+                // the original combined check-and-rename-at-issue path.
+                const bool already_renamed = rename_in_order && ins->completedRename();
                 const int resource_check = checkInstructionResources(
-                    ins, int_register_stack, fp_register_stack, issue_isa_tables[i]);
+                    ins, int_register_stack, fp_register_stack, issue_isa_tables[i], already_renamed);
 
                 #ifdef VANADIS_BUILD_DEBUG
                 if ( output_verbosity >= 8 )
@@ -713,9 +795,15 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                     {
                         int status = 0;
 
-                        status = assignRegistersToInstruction(
-                                thread_decoders[i]->countISAIntReg(), thread_decoders[i]->countISAFPReg(), ins,
-                                int_register_stack, fp_register_stack, issue_isa_tables[i]);
+                        // Already renamed ahead of issue (rename_in_order): registers were
+                        // assigned by performRename, do not rename again. Otherwise (default-off,
+                        // or this instruction's rename was deferred/never-attempted per the
+                        // comment above) rename now, exactly as the original code always did.
+                        if ( !already_renamed ) {
+                            status = assignRegistersToInstruction(
+                                    thread_decoders[i]->countISAIntReg(), thread_decoders[i]->countISAFPReg(), ins,
+                                    int_register_stack, fp_register_stack, issue_isa_tables[i]);
+                        }
                         #ifdef VANADIS_BUILD_DEBUG
                             if ( checkVerboseAddr( ins->getInstructionAddress() ) )
                             {
@@ -1618,6 +1706,16 @@ VanadisCore::tick(SST::Cycle_t cycle)
     #endif
     performExecute(cycle);
 
+    // Rename (default off, see "rename_in_order" param). Must run before Issue below so that
+    // performIssue sees freshly-renamed instructions this same cycle. No-op loop (performRename
+    // returns immediately) when rename_in_order is off.
+    // //////////////////////////////////////////////////////////////////////////
+    if ( rename_in_order ) {
+        for ( uint32_t i = 0; i < hw_threads; ++i ) {
+            performRename(cycle, i);
+        }
+    }
+
     // Issue
     // //////////////////////////////////////////////////////////////////////////
     #ifdef VANADIS_BUILD_DEBUG
@@ -1702,6 +1800,21 @@ VanadisCore::tick(SST::Cycle_t cycle)
     }
 
     stat_rob_entries->addData(rob_total_count);
+
+    // rename_in_order occupancy stat (default off; gated so it costs nothing on the default-off
+    // path): how many instructions, across all threads, have been renamed but not yet issued.
+    if ( rename_in_order ) {
+        uint64_t renamed_not_issued_count = 0;
+        for ( uint32_t i = 0; i < hw_threads; ++i ) {
+            VanadisCircularQueue<VanadisInstruction*>* thr_rob = rob[i];
+            const auto rob_size = thr_rob->size();
+            for ( uint32_t j = 0; j < rob_size; ++j ) {
+                VanadisInstruction* ins = thr_rob->peekAt(j);
+                if ( ins->completedRename() && !ins->completedIssue() ) { ++renamed_not_issued_count; }
+            }
+        }
+        stat_renamed_not_issued->addData(renamed_not_issued_count);
+    }
 
     #ifdef VANADIS_BUILD_DEBUG
     if(output_verbosity >= 16)
@@ -1804,7 +1917,8 @@ VanadisCore::markPhysRegsReady(VanadisInstruction* ins)
 
 int
 VanadisCore::checkInstructionResources(
-    VanadisInstruction* ins, VanadisRegisterStack* int_regs, VanadisRegisterStack* fp_regs, VanadisISATable* isa_table)
+    VanadisInstruction* ins, VanadisRegisterStack* int_regs, VanadisRegisterStack* fp_regs, VanadisISATable* isa_table,
+    bool already_renamed)
 {
     const auto hwThr = ins->getHWThread();
     auto int_reg_write = tmp_int_reg_write[hwThr];
@@ -1822,21 +1936,28 @@ VanadisCore::checkInstructionResources(
     const uint16_t fp_reg_out_count = ins->countISAFPRegOut();
     const uint16_t fp_reg_in_count = ins->countISAFPRegIn();
 
-    // We need places to store our output registers
-    resources_good &= (int_regs->unused() >= int_reg_out_count) && (fp_regs->unused() >= fp_reg_out_count);
+    // already_renamed: performRename already assigned this instruction's physical registers and
+    // checked output-register availability, and its strict program-order walk already guarantees
+    // no WAW/WAR hazard against an older writer/reader of the same ISA register. Skip
+    // resource-check 1 and the ISA-indexed same-scan checks entirely; readiness below is decided
+    // purely by the reg_ready_at_writeback physical-register ready bits.
+    if ( !already_renamed ) {
+        // We need places to store our output registers
+        resources_good &= (int_regs->unused() >= int_reg_out_count) && (fp_regs->unused() >= fp_reg_out_count);
 
-    if ( UNLIKELY(!resources_good )) {
-        #ifdef VANADIS_BUILD_DEBUG
-        output->verbose(CALL_INFO, 8, 0, "hw_thr=%d: --> Attempting issue for: ins:0x%" PRI_ADDR " / %s\n", hwThr,
-                                ins->getInstructionAddress(), ins->getInstCode());
-        output->verbose(
-            CALL_INFO, 16, 0,
-            "----> insufficient output / req: int: %" PRIu16 " fp: %" PRIu16 " / free: int: %" PRIu16 " fp: %" PRIu16
-            "\n",
-            (uint16_t)ins->countISAIntRegOut(), (uint16_t)ins->countISAFPRegOut(), (uint16_t)int_regs->unused(),
-            (uint16_t)fp_regs->unused());
-        #endif
-        return 1;
+        if ( UNLIKELY(!resources_good )) {
+            #ifdef VANADIS_BUILD_DEBUG
+            output->verbose(CALL_INFO, 8, 0, "hw_thr=%d: --> Attempting issue for: ins:0x%" PRI_ADDR " / %s\n", hwThr,
+                                    ins->getInstructionAddress(), ins->getInstCode());
+            output->verbose(
+                CALL_INFO, 16, 0,
+                "----> insufficient output / req: int: %" PRIu16 " fp: %" PRIu16 " / free: int: %" PRIu16 " fp: %" PRIu16
+                "\n",
+                (uint16_t)ins->countISAIntRegOut(), (uint16_t)ins->countISAFPRegOut(), (uint16_t)int_regs->unused(),
+                (uint16_t)fp_regs->unused());
+            #endif
+            return 1;
+        }
     }
 
     // If there are any pending writes against our reads, we can't issue until
@@ -1852,9 +1973,17 @@ VanadisCore::checkInstructionResources(
         const uint16_t ins_isa_reg = ins->getISAIntRegIn(i);
         bool input_pending;
         if ( wbready_consumer_eligible ) {
-            const uint16_t phys_reg = isa_table->getIntPhysReg(ins_isa_reg);
+            // already_renamed: this input was bound to a specific phys reg back when performRename
+            // renamed it; a fresh isa_table lookup would instead return whatever a younger,
+            // already-renamed writer of the same ISA register has since renamed it to. Use the
+            // instruction's own captured phys reg instead.
+            const uint16_t phys_reg = already_renamed ? ins->getPhysIntRegIn(i) : isa_table->getIntPhysReg(ins_isa_reg);
             if ( int_reg_needs_retire_[phys_reg] ) {
-                input_pending = isa_table->pendingIntWrites(ins_isa_reg);
+                // already_renamed: pendingIntWrites(ins_isa_reg) is incremented at rename time, so
+                // under rename_in_order it also counts younger, still-in-flight renamed-ahead
+                // writers of the same ISA register and can never reach zero here. Use the
+                // per-physical-register retired_ bit instead (see its comment in vanadis.h).
+                input_pending = already_renamed ? !int_reg_retired_[phys_reg] : isa_table->pendingIntWrites(ins_isa_reg);
             } else {
                 input_pending = !int_reg_ready_[phys_reg];
                 if ( input_pending ) { stat_wbready_int_raw_block->addData(1); }
@@ -1862,7 +1991,11 @@ VanadisCore::checkInstructionResources(
         } else {
             input_pending = isa_table->pendingIntWrites(ins_isa_reg);
         }
-        resources_good &= (!input_pending) && (!int_reg_write[ins_isa_reg]);
+        if ( already_renamed ) {
+            resources_good &= !input_pending;
+        } else {
+            resources_good &= (!input_pending) && (!int_reg_write[ins_isa_reg]);
+        }
     }
 
     #ifdef VANADIS_BUILD_DEBUG
@@ -1878,9 +2011,11 @@ VanadisCore::checkInstructionResources(
         const uint16_t ins_isa_reg = ins->getISAFPRegIn(i);
         bool input_pending;
         if ( wbready_consumer_eligible ) {
-            const uint16_t phys_reg = isa_table->getFPPhysReg(ins_isa_reg);
+            // See the matching comment in the int-register loop above.
+            const uint16_t phys_reg = already_renamed ? ins->getPhysFPRegIn(i) : isa_table->getFPPhysReg(ins_isa_reg);
             if ( fp_reg_needs_retire_[phys_reg] ) {
-                input_pending = isa_table->pendingFPWrites(ins_isa_reg);
+                // See the matching comment in the int-register loop above.
+                input_pending = already_renamed ? !fp_reg_retired_[phys_reg] : isa_table->pendingFPWrites(ins_isa_reg);
             } else {
                 input_pending = !fp_reg_ready_[phys_reg];
                 if ( input_pending ) { stat_wbready_fp_raw_block->addData(1); }
@@ -1888,7 +2023,11 @@ VanadisCore::checkInstructionResources(
         } else {
             input_pending = isa_table->pendingFPWrites(ins_isa_reg);
         }
-        resources_good &= (!input_pending) & (!fp_reg_write[ins_isa_reg]);
+        if ( already_renamed ) {
+            resources_good &= !input_pending;
+        } else {
+            resources_good &= (!input_pending) & (!fp_reg_write[ins_isa_reg]);
+        }
     }
 
     #ifdef VANADIS_BUILD_DEBUG
@@ -1900,6 +2039,12 @@ VanadisCore::checkInstructionResources(
     #endif
 
     if ( UNLIKELY(!resources_good )) { return 3; }
+
+    if ( already_renamed ) {
+        // Already renamed in strict program order -- no WAW/WAR output hazard is possible, skip
+        // codes 4/5 entirely.
+        return 0;
+    }
 
     for ( uint16_t i = 0; i < int_reg_out_count; ++i ) {
         const uint16_t ins_isa_reg = ins->getISAIntRegOut(i);
@@ -1960,7 +2105,10 @@ VanadisCore::debugCheckRenameConsistency(
         for ( uint16_t k = 0; k < out_count; ++k ) {
             const uint16_t out_isa = is_int ? scan_ins->getISAIntRegOut(k) : scan_ins->getISAFPRegOut(k);
             if ( out_isa == isa_reg ) {
-                if ( scan_ins->completedIssue() ) {
+                // A writer counts as "already renamed" once it has either issued (the only way
+                // to rename on the default-off path) or, under rename_in_order, been renamed by
+                // performRename ahead of issue.
+                if ( scan_ins->completedIssue() || scan_ins->completedRename() ) {
                     last_issued_writer = scan_ins;
                     last_issued_writer_out_idx = k;
                 }
@@ -2089,7 +2237,13 @@ VanadisCore::assignRegistersToInstruction(
             // write it asynchronously, well after this point. Force consumers back onto the
             // original retire-gated pendingWrites check for this phys reg (the ready bit, if
             // any, is stale/irrelevant once this flag is set).
-            if ( reg_ready_at_writeback ) { int_reg_needs_retire_[out_reg] = 1; }
+            if ( reg_ready_at_writeback ) {
+                int_reg_needs_retire_[out_reg] = 1;
+                // rename_in_order only: this phys reg is claimed-but-not-yet-retired by this
+                // SYSCALL (recoverRetiredRegisters sets it back to 1 when SYSCALL itself
+                // retires); see int_reg_retired_'s comment in vanadis.h.
+                int_reg_retired_[out_reg] = 0;
+            }
         }
 
         // Set current ISA registers required for output
@@ -2107,7 +2261,10 @@ VanadisCore::assignRegistersToInstruction(
             ins->setPhysFPRegOut(i, out_reg);
             isa_table->incFPWrite(ins_isa_reg);
 
-            if ( reg_ready_at_writeback ) { fp_reg_needs_retire_[out_reg] = 1; }
+            if ( reg_ready_at_writeback ) {
+                fp_reg_needs_retire_[out_reg] = 1;
+                fp_reg_retired_[out_reg] = 0;
+            }
         }
     }
     else {
@@ -2150,6 +2307,7 @@ VanadisCore::assignRegistersToInstruction(
             if ( reg_ready_at_writeback ) {
                 int_reg_ready_[out_reg] = 0;
                 int_reg_needs_retire_[out_reg] = wbreadyRequiresRetireGating(ins) ? 1 : 0;
+                int_reg_retired_[out_reg] = 0;
             }
         }
 
@@ -2184,6 +2342,7 @@ VanadisCore::assignRegistersToInstruction(
             if ( reg_ready_at_writeback ) {
                 fp_reg_ready_[out_reg] = 0;
                 fp_reg_needs_retire_[out_reg] = wbreadyRequiresRetireGating(ins) ? 1 : 0;
+                fp_reg_retired_[out_reg] = 0;
             }
         }
     }
@@ -2259,6 +2418,9 @@ VanadisCore::recoverRetiredRegisters(
             // Set the ISA register in the retirement table to point
             // to the physical register used by this instruction
             retire_isa_table->setIntPhysReg(isa_reg, ins->getPhysIntRegOut(i));
+            // rename_in_order only; see int_reg_retired_'s comment in vanadis.h. This
+            // instruction's own output phys reg has now actually retired.
+            if ( reg_ready_at_writeback ) { int_reg_retired_[ins->getPhysIntRegOut(i)] = 1; }
         }
     }
     else {
@@ -2270,6 +2432,9 @@ VanadisCore::recoverRetiredRegisters(
             const uint16_t cur_phys_reg = retire_isa_table->getIntPhysReg(isa_reg);
 
             issue_isa_table->decIntWrite(isa_reg);
+            // rename_in_order only (SYSCALL's bypass path): the phys reg it poisoned
+            // (needs_retire_=1, retired_=0 at allocation) has now retired too.
+            if ( reg_ready_at_writeback ) { int_reg_retired_[ins->getPhysIntRegOut(i)] = 1; }
         }
     }
 
@@ -2286,6 +2451,7 @@ VanadisCore::recoverRetiredRegisters(
             // Set the ISA register in the retirement table to point
             // to the physical register used by this instruction
             retire_isa_table->setFPPhysReg(isa_reg, ins->getPhysFPRegOut(i));
+            if ( reg_ready_at_writeback ) { fp_reg_retired_[ins->getPhysFPRegOut(i)] = 1; }
         }
     }
     else {
@@ -2297,6 +2463,7 @@ VanadisCore::recoverRetiredRegisters(
             const uint16_t cur_phys_reg = retire_isa_table->getFPPhysReg(isa_reg);
 
             issue_isa_table->decFPWrite(isa_reg);
+            if ( reg_ready_at_writeback ) { fp_reg_retired_[ins->getPhysFPRegOut(i)] = 1; }
         }
     }
 
@@ -2482,11 +2649,15 @@ VanadisCore::handleMisspeculate(const uint32_t hw_thr, const uint64_t new_ip)
             const uint16_t phys_reg = retire_isa_tables[hw_thr]->getIntPhysReg(isa_reg);
             int_reg_ready_[phys_reg] = 1;
             int_reg_needs_retire_[phys_reg] = 0;
+            // rename_in_order only: this phys reg is exactly the committed/retired state, so it
+            // is (by definition) retired too; see int_reg_retired_'s comment in vanadis.h.
+            int_reg_retired_[phys_reg] = 1;
         }
         for ( uint16_t isa_reg = 0; isa_reg < thread_decoders[hw_thr]->countISAFPReg(); ++isa_reg ) {
             const uint16_t phys_reg = retire_isa_tables[hw_thr]->getFPPhysReg(isa_reg);
             fp_reg_ready_[phys_reg] = 1;
             fp_reg_needs_retire_[phys_reg] = 0;
+            fp_reg_retired_[phys_reg] = 1;
         }
     }
 
@@ -2518,7 +2689,10 @@ VanadisCore::clearROBMisspeculate(const uint32_t hw_thr)
     // Delete all the instructions which we aren't going to process
     for ( size_t i = 0; i < thr_rob->size(); ++i ) {
         VanadisInstruction* next_ins = thr_rob->peekAt(i);
-        if ( next_ins->completedIssue() )  {
+        // rename_in_order: a renamed-but-not-yet-issued instruction already has its output
+        // physical registers assigned (by performRename), so it must also return them here or
+        // they leak.
+        if ( next_ins->completedIssue() || next_ins->completedRename() )  {
             next_ins->returnOutRegs( int_register_stack, fp_register_stack  );
         }
         reg_ready_checker_.forget(next_ins);

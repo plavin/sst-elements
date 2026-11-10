@@ -178,7 +178,19 @@ public:
         { "stage_trace_skip", "Debug-only. Number of retiring instructions to skip before stage_trace starts "
                                "dumping (to get past boot/startup).", "0"},
         { "stage_trace_count", "Debug-only. Number of retiring instructions to dump after stage_trace_skip. "
-                                "0 (the default) means dump nothing even if stage_trace is on.", "0"}  )
+                                "0 (the default) means dump nothing even if stage_trace is on.", "0"},
+        { "rename_in_order", "Default off. When true, physical registers are assigned to each instruction "
+                              "by a separate rename stage that walks the ROB in strict program order, ahead of "
+                              "issue, instead of renaming at issue time. Issue then only considers "
+                              "already-renamed instructions and decides readiness purely from the "
+                              "reg_ready_at_writeback physical-register ready bits, skipping the ISA-indexed "
+                              "WAR/WAW tmp-table checks. Requires reg_ready_at_writeback=true (fatal otherwise). "
+                              "SYSCALL/RoCC instructions are never renamed ahead of issue; they and everything "
+                              "behind them in the ROB fall back to the old combined check-and-rename-at-issue "
+                              "path.", "false"},
+        { "rename_width", "Default off feature (see rename_in_order). Maximum number of not-yet-renamed "
+                           "instructions the rename stage will rename per hardware thread per cycle. Defaults to "
+                           "decodes_per_cycle.", "decodes_per_cycle"}  )
 
     SST_ELI_DOCUMENT_STATISTICS(
         { "cycles", "Number of cycles the core executed", "cycles", 1 },
@@ -204,7 +216,9 @@ public:
         { "mem_block_out_hazard", "LOAD/STORE/FENCE blocked at issue: WAW/WAR vs an earlier not-yet-issued instruction", "instructions", 1 },
         { "mem_block_lsq_full", "LOAD/STORE blocked at issue: resources ok but LSQ op queue is full", "instructions", 1 },
         { "wbready_int_raw_block", "Issue blocked on an integer input whose producer has not yet written back (reg_ready_at_writeback path)", "instructions", 1 },
-        { "wbready_fp_raw_block", "Issue blocked on an FP input whose producer has not yet written back (reg_ready_at_writeback path)", "instructions", 1 })
+        { "wbready_fp_raw_block", "Issue blocked on an FP input whose producer has not yet written back (reg_ready_at_writeback path)", "instructions", 1 },
+        { "rename_stall_no_regs", "rename_in_order path: the in-order rename stage stopped (for a cycle, a thread) because the oldest not-yet-renamed instruction had no free physical register(s) available", "instructions", 1 },
+        { "renamed_not_issued", "rename_in_order path: number of instructions that have been renamed but not yet issued, sampled each cycle", "instructions", 1 })
 
     SST_ELI_DOCUMENT_PORTS({ "icache_link", "Connects the CPU to the instruction cache", {} },
                            { "dcache_link", "Connects the CPU to the data cache", {} },
@@ -261,7 +275,7 @@ private:
 
     int checkInstructionResources(
         VanadisInstruction* ins, VanadisRegisterStack* int_regs, VanadisRegisterStack* fp_regs,
-        VanadisISATable* isa_table);
+        VanadisISATable* isa_table, bool already_renamed = false);
 
     int recoverRetiredRegisters(
         VanadisInstruction* ins, VanadisRegisterStack* int_regs, VanadisRegisterStack* fp_regs,
@@ -273,6 +287,7 @@ private:
 
     void performFetch(const uint64_t cycle);
     void performDecode(const uint64_t cycle);
+    void performRename(const uint64_t cycle, int hwThr);
     int  performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, int& unallocated_memory_op_seen);
     void performExecute(const uint64_t cycle);
     int  performRetire(int rob_num, VanadisCircularQueue<VanadisInstruction*>* rob, const uint64_t cycle);
@@ -349,8 +364,29 @@ private:
     std::vector<uint8_t> int_reg_needs_retire_;
     std::vector<uint8_t> fp_reg_needs_retire_;
 
+    // rename_in_order only: per-physical-register "has this phys reg's producer retired" bit,
+    // maintained alongside reg_ready_at_writeback's other per-phys-reg vectors. Needed because
+    // the ISA-indexed pendingIntWrites/pendingFPWrites counters that int_reg_needs_retire_'s
+    // fallback normally uses assume rename and the readiness check happen in the same call; under
+    // rename_in_order they can count multiple in-flight renamed-but-unretired writers of the same
+    // ISA register and so never reach zero. Only consulted from checkInstructionResources's
+    // already_renamed branch; a no-op when rename_in_order is off.
+    std::vector<uint8_t> int_reg_retired_;
+    std::vector<uint8_t> fp_reg_retired_;
+
     void markPhysRegsReady(VanadisInstruction* ins);
     static bool wbreadyRequiresRetireGating(VanadisInstruction* ins);
+
+    // In-order rename stage (default off, see "rename_in_order" param). Requires
+    // reg_ready_at_writeback. Each cycle, before issue, performRename walks each thread's ROB
+    // from the oldest instruction, renaming up to rename_width not-yet-renamed instructions,
+    // stopping at the first one with no free physical register or at a SYSCALL/RoCC instruction
+    // (left, along with everything behind it, for the old combined check+rename-at-issue path
+    // once it reaches the ROB front).
+    bool rename_in_order = false;
+    uint32_t rename_width = 2;
+    Statistic<uint64_t>* stat_rename_stall_no_regs = nullptr;
+    Statistic<uint64_t>* stat_renamed_not_issued = nullptr;
 
     // Apply the mem_order_check shadow checker's retire-time hooks for a genuinely
     // retiring (not squashed) instruction -- commits a STORE's captured payload into the shadow,

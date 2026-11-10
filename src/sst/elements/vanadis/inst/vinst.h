@@ -78,6 +78,7 @@ class VanadisInstruction
             trap_error_           = false;
             has_executed_         = false;
             has_issued_           = false;
+            has_renamed_          = false;
             end_uop_group_        = false;
             is_front_of_rob_      = false;
             has_rob_slot_         = false;
@@ -112,6 +113,7 @@ class VanadisInstruction
             trap_error_           = copy_me.trap_error_;
             has_executed_         = copy_me.has_executed_;
             has_issued_           = copy_me.has_issued_;
+            has_renamed_          = copy_me.has_renamed_;
             end_uop_group_        = copy_me.end_uop_group_;
             is_front_of_rob_      = false;
             has_rob_slot_         = false;
@@ -406,9 +408,15 @@ class VanadisInstruction
 
         bool completedExecution() const { return has_executed_; }
         bool completedIssue() const { return has_issued_; }
+        // Default off ("rename_in_order" param): true once an in-order rename stage has already
+        // assigned this instruction's physical registers, ahead of issue. SYSCALL/RoCC
+        // instructions are never renamed ahead of issue and keep the old combined
+        // check+rename-at-issue path regardless of this flag.
+        bool completedRename() const { return has_renamed_; }
 
         virtual void markExecuted() { has_executed_ = true; }
         void markIssued() { has_issued_ = true; }
+        void markRenamed() { has_renamed_ = true; }
 
         bool checkFrontOfROB() const { return is_front_of_rob_; }
         void markFrontOfROB() { is_front_of_rob_ = true; }
@@ -462,6 +470,7 @@ class VanadisInstruction
         bool trap_error_ = false;
         bool has_executed_;
         bool has_issued_;
+        bool has_renamed_;
         bool end_uop_group_;
         bool is_front_of_rob_;
         bool has_rob_slot_;
