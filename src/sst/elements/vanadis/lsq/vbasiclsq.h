@@ -80,7 +80,9 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                                     { "split_loads", "Count the number of loads which are fractured due to cache boundaries", "operations", 1},
                                     { "lsq_front_not_issued", "attempt_to_issue calls where op_q_ front has not completedIssue() yet", "attempts", 1},
                                     { "lsq_load_max_loads", "attempt_to_issue LOAD blocked because loads_pending_ (in-flight to memory) is at max_loads_", "attempts", 1},
-                                    { "store_conflict_block", "attempt_to_issue LOAD blocked because checkStoreConflict() found an address-overlapping pending/in-flight store", "attempts", 1})
+                                    { "store_conflict_block", "attempt_to_issue LOAD blocked because checkStoreConflict() found an address-overlapping pending/in-flight store", "attempts", 1},
+                                    { "store_data_wait_cycles", "store_data_late path: a store at the front of the ROB, otherwise ready to dispatch, blocked only because its data input was not yet ready", "attempts", 1},
+                                    { "wbready_inflight_backpressure", "reg_ready_at_writeback path: a store at the front of the ROB, otherwise ready to dispatch, held back because the dispatched-but-unacknowledged store count (wbready_stores_inflight_addr_) already reached max_stores_", "attempts", 1})
 
 
         VanadisBasicLoadStoreQueue(ComponentId_t id, Params& params, int coreid, int hwthreads) : VanadisLoadStoreQueue(id, params, coreid, hwthreads),
@@ -125,6 +127,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
             stat_lsq_front_not_issued_ = registerStatistic<uint64_t>("lsq_front_not_issued", "1");
             stat_lsq_load_max_loads_ = registerStatistic<uint64_t>("lsq_load_max_loads", "1");
             stat_store_conflict_block_ = registerStatistic<uint64_t>("store_conflict_block", "1");
+            stat_store_data_wait_cycles_ = registerStatistic<uint64_t>("store_data_wait_cycles", "1");
+            stat_wbready_inflight_backpressure_ = registerStatistic<uint64_t>("wbready_inflight_backpressure", "1");
         }
 
 
@@ -699,11 +703,70 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
                     #ifdef VANADIS_BUILD_DEBUG
                     output_->verbose(CALL_INFO, 16, VANADIS_DBG_LSQ_STORE_FLG, "---> store is at front of ROB so OK to push into memory system.\n");
                     #endif
+
+                    // reg_ready_at_writeback (default off): wbready_stores_inflight_addr_ tracks
+                    // every dispatched-but-unacknowledged ordinary store so checkStoreConflict()
+                    // can correctly block a load that would otherwise race ahead of a
+                    // still-in-flight write (see its own comment). That map has no inherent size
+                    // bound, and ordinary store dispatch below is fire-and-forget
+                    // (markExecuted()/retire happen this same cycle, fully decoupled from the
+                    // real memory system's completion) -- so for a write-heavy, poor-locality
+                    // workload where the core can generate stores faster than DRAM retires them,
+                    // this backlog can grow unboundedly. checkStoreConflict() then blocks *any*
+                    // later load whose address overlaps *any* backlog entry, and since the
+                    // backlog drains roughly in dispatch order, that can mean waiting for the
+                    // entire backlog -- not just the one colliding write -- stalling retirement
+                    // for millions of cycles (found via lsq-study/crash16m: a load reading an
+                    // address with no real conflict still waited ~8.6M cycles behind a 200K+-deep
+                    // backlog from an unrelated 16MiB write loop). Fix: give ordinary store
+                    // dispatch the same backpressure a real store buffer has -- hold a new store
+                    // back (retry next cycle, exactly like the store_data_late gate below) once
+                    // the unacknowledged-store count already reached the configured queue depth
+                    // (max_stores_, the same bound stores_pending_ enforces pre-dispatch).
+                    //
+                    // Gated on reg_ready_at_writeback AND rename_in_order together (both checked
+                    // directly), not reg_ready_at_writeback alone: a reg_ready_at_writeback-only
+                    // config still goes through the old same-scan WAW/WAR tmp-table check at issue
+                    // (see wbready/NOTES.md's "root cause doesn't show up" finding), which already
+                    // throttles store generation down to roughly the old retire-gated rate -- this
+                    // backlog never grows large there, and gating on reg_ready_at_writeback alone
+                    // was confirmed (lsq-study/crash16m/NOTES.md) to perturb that config's cycle
+                    // counts on an all-loads, zero-store benchmark (a required bit-identity check),
+                    // apparently via a knock-on DRAM-bank-state timing effect from throttling an
+                    // unrelated setup loop's stores earlier in the same run -- i.e. still a
+                    // behavior change even though the gate's own condition should rarely bind.
+                    // rename_in_order is what actually removes that throttle and lets the backlog
+                    // grow in the first place (confirmed: reg_ready_at_writeback+rename_in_order
+                    // reproduces the hang/crash with store_data_late and the width/pipeline bumps
+                    // all off; reg_ready_at_writeback alone does not), so restricting the gate to
+                    // exactly that combination keeps every reg_ready_at_writeback-alone cycle count
+                    // (and therefore default-off, a fortiori) mechanically unchanged.
+                    if ( (nullptr != reg_ready_at_writeback_) && *reg_ready_at_writeback_ &&
+                         (nullptr != rename_in_order_) && *rename_in_order_ &&
+                         (wbready_stores_inflight_addr_.size() >= max_stores_) ) {
+                        stat_wbready_inflight_backpressure_->addData(1);
+                        return false;
+                    }
+
+                    // store_data_late (default off): this store may have issued (been allocated
+                    // into the LSQ) before its data input was ready -- it must not actually
+                    // commit to memory (or markExecuted/retire) until that input has been
+                    // written back. No-op (always true) unless store_data_late is on and this is
+                    // an eligible store; see vlsq.h::isStoreDataReadyIfLate(). Expected to be
+                    // true essentially every time this point is reached in practice (in-order
+                    // retirement already guarantees the data's producer, being strictly older,
+                    // retired -- and so wrote back -- before this store could become ROB-front);
+                    // stat_store_data_wait_cycles_ documents that invariant.
+                    if ( UNLIKELY(!isStoreDataReadyIfLate(store_ins)) ) {
+                        stat_store_data_wait_cycles_->addData(1);
+                        return false;
+                    }
+
                     // issueStore() (below) is the point the store's value (data) register
                     // actually gets read out of the register file to build the memory write
                     // request, so (re-)validate just before that read happens; the address
                     // register was already validated earlier in store_process().
-                    checkRegReadyReadIfEnabled(store_ins);
+                    checkRegReadyReadDataIfEnabled(store_ins);
 
                     // store instruction is current front of ROB so ready to be send to memory system
                     bool issue_result = issueStore(current_store, store_ins);
@@ -1508,8 +1571,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
             // reg_ready_check: computeStoreAddress() (below) is the actual point the store's
             // address register(s) get read out of the register file -- validate immediately
             // before that read happens. The store's value/data register is validated separately,
-            // closer to its own actual read, in issueStoreFront().
-            checkRegReadyReadIfEnabled(store_ins);
+            // closer to its own actual read, in issueStoreFront() (checkRegReadyReadDataIfEnabled).
+            checkRegReadyReadAddressIfEnabled(store_ins);
 
             store_ins->computeStoreAddress(output_, hw_thr_reg, &store_address, &store_width);
             if(store_ins->trapsError())
@@ -1672,6 +1735,8 @@ class VanadisBasicLoadStoreQueue : public SST::Vanadis::VanadisLoadStoreQueue
         Statistic<uint64_t>* stat_lsq_front_not_issued_;
         Statistic<uint64_t>* stat_lsq_load_max_loads_;
         Statistic<uint64_t>* stat_store_conflict_block_;
+        Statistic<uint64_t>* stat_store_data_wait_cycles_;
+        Statistic<uint64_t>* stat_wbready_inflight_backpressure_;
         Statistic<uint64_t>* stat_stores_pending_;
         Statistic<uint64_t>* stat_loads_pending_;
         Statistic<uint64_t>* stat_stores_issued_;

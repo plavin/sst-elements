@@ -328,6 +328,7 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
     // output phys regs ready (no-op while reg_ready_at_writeback is false).
     lsq->setRegReadyBits(&int_reg_ready_, &fp_reg_ready_, &reg_ready_at_writeback);
     lsq->setRegReadyChecker(&reg_ready_checker_);
+    lsq->setRenameInOrderFlag(&rename_in_order);
     lsq->setMemOrderChecker(&mem_order_checker_);
     lsq->setPipelineTracer(&pipeline_tracer_);
 
@@ -449,6 +450,25 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
             getName().c_str());
     }
 
+    // Split STA/STD store issue, default off. See "store_data_late" param / vanadis.h for the
+    // design writeup. Requires rename_in_order=true: a store's address and data inputs must
+    // already be bound to specific physical registers ahead of issue (performRename) for it to
+    // be safe to stop gating issue on just one of them.
+    store_data_late = params.find<bool>("store_data_late", false);
+    if ( store_data_late && !rename_in_order ) {
+        output->fatal(
+            CALL_INFO, -1,
+            "Error (%s): 'store_data_late' requires 'rename_in_order=true' (the store's address "
+            "and data inputs must already be bound to specific physical registers ahead of issue "
+            "for issue to safely gate on only one of them).\n",
+            getName().c_str());
+    }
+    // Gives the LSQ what it needs to decide whether a late-issued store's data register has
+    // actually been written back yet (lsq/vlsq.h::isStoreDataReadyIfLate()). No-op pointers
+    // unless store_data_late is itself on.
+    lsq->setStoreDataLateBits(
+        &store_data_late, &int_reg_needs_retire_, &int_reg_retired_, &fp_reg_needs_retire_, &fp_reg_retired_);
+
     std::string pipeline_trace_path = params.find<std::string>("pipeline_trace_file", "");
 
     if ( pipeline_trace_path == "" ) {
@@ -492,6 +512,8 @@ VanadisCore::VanadisCore(SST::ComponentId_t id, SST::Params& params) : Component
 
     stat_rename_stall_no_regs   = registerStatistic<uint64_t>("rename_stall_no_regs", "1");
     stat_renamed_not_issued     = registerStatistic<uint64_t>("renamed_not_issued", "1");
+
+    stat_stores_issued_data_pending = registerStatistic<uint64_t>("stores_issued_data_pending", "1");
 
     //registerAsPrimaryComponent();
     //primaryComponentDoNotEndSim();
@@ -737,8 +759,14 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                 // when rename_in_order is off, and also true for SYSCALL/RoCC -- falls back to
                 // the original combined check-and-rename-at-issue path.
                 const bool already_renamed = rename_in_order && ins->completedRename();
+                // store_data_late: set true by checkInstructionResources iff ins is an eligible
+                // late store whose data input was not yet ready (see its own comments). Only
+                // meaningful when 0 == resource_check and ins is a STORE; see the
+                // stores_issued_data_pending bump below.
+                bool store_data_was_pending = false;
                 const int resource_check = checkInstructionResources(
-                    ins, int_register_stack, fp_register_stack, issue_isa_tables[i], already_renamed);
+                    ins, int_register_stack, fp_register_stack, issue_isa_tables[i], already_renamed,
+                    &store_data_was_pending);
 
                 #ifdef VANADIS_BUILD_DEBUG
                 if ( output_verbosity >= 8 )
@@ -827,6 +855,10 @@ VanadisCore::performIssue(const uint64_t cycle, int hwThr, uint32_t& rob_start, 
                         // stage_trace: checkInstructionResources passed and the instruction was
                         // allocated.
                         pipeline_tracer_.noteIssue(ins);
+
+                        // store_data_late: this store was allocated into the LSQ while its data
+                        // input was still not ready -- the feature actually doing something.
+                        if ( store_data_was_pending ) { stat_stores_issued_data_pending->addData(1); }
                     }
                     else
                     {
@@ -1918,7 +1950,7 @@ VanadisCore::markPhysRegsReady(VanadisInstruction* ins)
 int
 VanadisCore::checkInstructionResources(
     VanadisInstruction* ins, VanadisRegisterStack* int_regs, VanadisRegisterStack* fp_regs, VanadisISATable* isa_table,
-    bool already_renamed)
+    bool already_renamed, bool* out_store_data_pending)
 {
     const auto hwThr = ins->getHWThread();
     auto int_reg_write = tmp_int_reg_write[hwThr];
@@ -1935,6 +1967,21 @@ VanadisCore::checkInstructionResources(
     const uint16_t int_reg_out_count = ins->countISAIntRegOut();
     const uint16_t fp_reg_out_count = ins->countISAFPRegOut();
     const uint16_t fp_reg_in_count = ins->countISAFPRegIn();
+
+    // store_data_late (default off): identify, once per call, whether ins is an eligible
+    // split-STA/STD store -- an ordinary or partial store (not LL/SC/LOCK/AMO; see vstore.h's
+    // MEM_TRANSACTION_NONE gate) that performRename already renamed ahead of issue. Only such a
+    // store gets its data-input readiness excluded from the checks below; every other
+    // instruction (and a store that, for whatever reason, is not already_renamed) is checked
+    // exactly as before. See lsq-study/stdata/NOTES.md for the full design.
+    VanadisStoreInstruction* late_store = nullptr;
+    if ( store_data_late && already_renamed && (ins->getInstFuncType() == INST_STORE) ) {
+        VanadisStoreInstruction* maybe_store = dynamic_cast<VanadisStoreInstruction*>(ins);
+        if ( (nullptr != maybe_store) && (maybe_store->getTransactionType() == MEM_TRANSACTION_NONE) ) {
+            late_store = maybe_store;
+        }
+    }
+    if ( nullptr != out_store_data_pending ) { *out_store_data_pending = false; }
 
     // already_renamed: performRename already assigned this instruction's physical registers and
     // checked output-register availability, and its strict program-order walk already guarantees
@@ -1971,6 +2018,16 @@ VanadisCore::checkInstructionResources(
 
     for ( uint16_t i = 0; i < int_reg_in_count; ++i ) {
         const uint16_t ins_isa_reg = ins->getISAIntRegIn(i);
+
+        // store_data_late: this specific input is the identified late store's *data* register.
+        // Its readiness does not gate issue in this mode -- that's the whole point of the
+        // feature -- so it is excluded from resources_good and from stat_wbready_int_raw_block
+        // (it is not a "block"); whether it was actually pending is reported via
+        // out_store_data_pending/stores_issued_data_pending instead. Every other input
+        // (including this same store's address input, i==0) is unaffected.
+        const bool is_late_store_data_input =
+            (nullptr != late_store) && (late_store->getValueRegisterType() == STORE_INT_REGISTER) && (i == 1);
+
         bool input_pending;
         if ( wbready_consumer_eligible ) {
             // already_renamed: this input was bound to a specific phys reg back when performRename
@@ -1986,11 +2043,17 @@ VanadisCore::checkInstructionResources(
                 input_pending = already_renamed ? !int_reg_retired_[phys_reg] : isa_table->pendingIntWrites(ins_isa_reg);
             } else {
                 input_pending = !int_reg_ready_[phys_reg];
-                if ( input_pending ) { stat_wbready_int_raw_block->addData(1); }
+                if ( input_pending && !is_late_store_data_input ) { stat_wbready_int_raw_block->addData(1); }
             }
         } else {
             input_pending = isa_table->pendingIntWrites(ins_isa_reg);
         }
+
+        if ( is_late_store_data_input ) {
+            if ( input_pending && (nullptr != out_store_data_pending) ) { *out_store_data_pending = true; }
+            continue;
+        }
+
         if ( already_renamed ) {
             resources_good &= !input_pending;
         } else {
@@ -2009,6 +2072,12 @@ VanadisCore::checkInstructionResources(
 
     for ( uint16_t i = 0; i < fp_reg_in_count; ++i ) {
         const uint16_t ins_isa_reg = ins->getISAFPRegIn(i);
+
+        // store_data_late: see the matching comment in the int-register loop above. For an FP
+        // store the data input is fp index 0 (the address is always an int input).
+        const bool is_late_store_data_input =
+            (nullptr != late_store) && (late_store->getValueRegisterType() == STORE_FP_REGISTER) && (i == 0);
+
         bool input_pending;
         if ( wbready_consumer_eligible ) {
             // See the matching comment in the int-register loop above.
@@ -2018,11 +2087,17 @@ VanadisCore::checkInstructionResources(
                 input_pending = already_renamed ? !fp_reg_retired_[phys_reg] : isa_table->pendingFPWrites(ins_isa_reg);
             } else {
                 input_pending = !fp_reg_ready_[phys_reg];
-                if ( input_pending ) { stat_wbready_fp_raw_block->addData(1); }
+                if ( input_pending && !is_late_store_data_input ) { stat_wbready_fp_raw_block->addData(1); }
             }
         } else {
             input_pending = isa_table->pendingFPWrites(ins_isa_reg);
         }
+
+        if ( is_late_store_data_input ) {
+            if ( input_pending && (nullptr != out_store_data_pending) ) { *out_store_data_pending = true; }
+            continue;
+        }
+
         if ( already_renamed ) {
             resources_good &= !input_pending;
         } else {

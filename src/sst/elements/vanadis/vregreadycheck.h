@@ -44,6 +44,7 @@
 #include <sst/core/output.h>
 
 #include "inst/vinst.h"
+#include "inst/vstore.h"
 
 namespace SST {
 namespace Vanadis {
@@ -110,6 +111,26 @@ public:
         checkReadOne(out, ins, false);
     }
 
+    // Scoped variants for a store's two inputs, which (under store_data_late) are actually read
+    // from the register file at two different points in time: the address in store_process()
+    // (computeStoreAddress), the data in issueStoreFront()/issueStore(). The address is always
+    // int input index 0 for every store type (inst/vstore.h); the data is int index 1 for
+    // STORE_INT_REGISTER, or fp index 0 for STORE_FP_REGISTER. Applied unconditionally by every
+    // caller (not just under store_data_late) -- strictly more precise than checkRead() checking
+    // both together at the address's read point -- and, like checkRead(), purely observational.
+    void checkStoreAddressRead(SST::Output* out, VanadisInstruction* ins) {
+        if ( !enabled() ) return;
+        checkReadRange(out, ins, true, 0, 1);
+    }
+    void checkStoreDataRead(SST::Output* out, VanadisStoreInstruction* store_ins) {
+        if ( !enabled() ) return;
+        if ( store_ins->getValueRegisterType() == STORE_INT_REGISTER ) {
+            checkReadRange(out, store_ins, true, 1, 2);
+        } else {
+            checkReadRange(out, store_ins, false, 0, 1);
+        }
+    }
+
     // Call right after an instruction's destination operands are actually written into the
     // register file (FU writeback; LSQ markExecuted sites). fatal()s on the first violation found.
     void checkWrite(SST::Output* out, VanadisInstruction* ins) {
@@ -132,17 +153,23 @@ private:
     bool enabled() const { return (nullptr != enabled_) && *enabled_; }
 
     void checkReadOne(SST::Output* out, VanadisInstruction* ins, bool is_int) {
+        const uint16_t count = is_int ? ins->countISAIntRegIn() : ins->countISAFPRegIn();
+        checkReadRange(out, ins, is_int, 0, count);
+    }
+
+    // Shared by checkReadOne (the full [0,count) range) and the store-scoped
+    // checkStoreAddressRead/checkStoreDataRead ([begin,end) a single input).
+    void checkReadRange(SST::Output* out, VanadisInstruction* ins, bool is_int, uint16_t begin, uint16_t end) {
         InsGenMap* map_ptr = is_int ? int_in_gen_ : fp_in_gen_;
         auto       it      = map_ptr->find(ins);
         if ( it == map_ptr->end() ) return;
 
         std::vector<uint32_t>& gens     = it->second;
-        const uint16_t         count    = is_int ? ins->countISAIntRegIn() : ins->countISAFPRegIn();
         std::vector<uint32_t>& live_gen = *(is_int ? int_gen_ : fp_gen_);
         std::vector<uint8_t>&  written  = *(is_int ? int_written_ : fp_written_);
         std::vector<uint64_t>& producer = *(is_int ? int_producer_ : fp_producer_);
 
-        for ( uint16_t i = 0; i < count && i < gens.size(); ++i ) {
+        for ( uint16_t i = begin; i < end && i < gens.size(); ++i ) {
             const uint16_t phys_reg = is_int ? ins->getPhysIntRegIn(i) : ins->getPhysFPRegIn(i);
 
             if ( live_gen[phys_reg] != gens[i] ) {

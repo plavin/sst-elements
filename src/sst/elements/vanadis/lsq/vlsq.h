@@ -100,9 +100,36 @@ public:
         reg_ready_at_writeback_ = flag;
     }
 
+    // Wires up the core's rename_in_order flag. No-op (pointer stays null, treated as "off") on
+    // any build/config that never calls this; used by the wbready-inflight-backlog backpressure
+    // gate in vbasiclsq.h::issueStoreFront(), which is only safe/needed once rename_in_order lets
+    // the core generate stores fast enough to build a large backlog in the first place -- see
+    // that gate's own comment for the full rationale. Deliberately a separate flag from
+    // reg_ready_at_writeback_ (above) so that gate stays inert for reg_ready_at_writeback-alone
+    // configs (confirmed bit-identical: lsq-study/crash16m/NOTES.md).
+    void setRenameInOrderFlag(const bool* flag) { rename_in_order_ = flag; }
+
     // Wires up the shadow checker (no-op unless its own "reg_ready_check" debug param is on;
     // see vregreadycheck.h).
     void setRegReadyChecker(VanadisRegReadyChecker* checker) { reg_ready_checker_ = checker; }
+
+    // Wires up everything isStoreDataReadyIfLate() (below) needs to decide whether a
+    // store_data_late-issued store's data register has actually been written back yet. No-op
+    // (isStoreDataReadyIfLate always returns true) unless store_data_late_flag's pointee is
+    // true. Requires rename_in_order (and therefore reg_ready_at_writeback / setRegReadyBits)
+    // whenever store_data_late is itself on -- enforced by a fatal check in VanadisCore's
+    // constructor -- so the needs_retire/retired vectors are guaranteed valid/sized then.
+    void setStoreDataLateBits(
+        const bool* store_data_late_flag, std::vector<uint8_t>* int_reg_needs_retire,
+        std::vector<uint8_t>* int_reg_retired, std::vector<uint8_t>* fp_reg_needs_retire,
+        std::vector<uint8_t>* fp_reg_retired)
+    {
+        store_data_late_ = store_data_late_flag;
+        store_data_late_int_needs_retire_ = int_reg_needs_retire;
+        store_data_late_int_retired_ = int_reg_retired;
+        store_data_late_fp_needs_retire_ = fp_reg_needs_retire;
+        store_data_late_fp_retired_ = fp_reg_retired;
+    }
 
     // Wires up the memory-order shadow checker (no-op unless its own "mem_order_check" debug
     // param is on; see ../vmemordercheck.h).
@@ -208,6 +235,19 @@ protected:
         if ( nullptr != reg_ready_checker_ ) { reg_ready_checker_->checkRead(output_, ins); }
     }
 
+    // Scoped variants of the above, for a store's two inputs, which (under store_data_late) are
+    // actually read from the register file at two different points in time: the address in
+    // store_process() (computeStoreAddress), the data in issueStoreFront()/issueStore(). Applied
+    // unconditionally (not gated on store_data_late) -- strictly more precise than checking both
+    // together at the address's read point, and a no-op like the above unless "reg_ready_check"
+    // is on, so it cannot change simulated cycle counts either way.
+    void checkRegReadyReadAddressIfEnabled(VanadisInstruction* ins) {
+        if ( nullptr != reg_ready_checker_ ) { reg_ready_checker_->checkStoreAddressRead(output_, ins); }
+    }
+    void checkRegReadyReadDataIfEnabled(VanadisStoreInstruction* store_ins) {
+        if ( nullptr != reg_ready_checker_ ) { reg_ready_checker_->checkStoreDataRead(output_, store_ins); }
+    }
+
     // Call right after an instruction's destination operand(s) have actually been written
     // into the register file (alongside markRegReadyIfEnabled above). No-op unless
     // "reg_ready_check" is on.
@@ -237,6 +277,29 @@ protected:
         if ( nullptr != mem_order_checker_ ) { mem_order_checker_->invalidateRange(address, width); }
     }
 
+    // store_data_late (default off; see "store_data_late" in vanadis.h for the full design).
+    // No-op (always returns true, i.e. "go ahead") unless store_data_late_ points at a true
+    // flag and store_ins is an eligible store (ordinary/partial, not LL/SC/LOCK/AMO). Mirrors
+    // VanadisCore::checkInstructionResources' already_renamed input-check exactly: look up the
+    // data input's physical register readiness, falling back to the per-phys-reg retired_ bit
+    // if needs_retire_ is set for it.
+    bool isStoreDataReadyIfLate(VanadisStoreInstruction* store_ins) {
+        if ( (nullptr == store_data_late_) || !(*store_data_late_) ) { return true; }
+        if ( store_ins->getTransactionType() != MEM_TRANSACTION_NONE ) { return true; }
+
+        const bool is_fp = (store_ins->getValueRegisterType() == STORE_FP_REGISTER);
+        const uint16_t phys_reg = is_fp ? store_ins->getPhysFPRegIn(0) : store_ins->getPhysIntRegIn(1);
+
+        std::vector<uint8_t>* needs_retire = is_fp ? store_data_late_fp_needs_retire_ : store_data_late_int_needs_retire_;
+        std::vector<uint8_t>* retired      = is_fp ? store_data_late_fp_retired_      : store_data_late_int_retired_;
+        std::vector<uint8_t>* ready        = is_fp ? fp_reg_ready_                   : int_reg_ready_;
+
+        if ( (nullptr != needs_retire) && (phys_reg < needs_retire->size()) && (*needs_retire)[phys_reg] ) {
+            return (nullptr != retired) && (phys_reg < retired->size()) && (*retired)[phys_reg];
+        }
+        return (nullptr != ready) && (phys_reg < ready->size()) && (*ready)[phys_reg];
+    }
+
     // stage_trace hooks (no-ops unless "stage_trace" is on; see ../vpipelinetrace.h). Call
     // noteLsqSendIfEnabled the instant a load/store request is actually dispatched to the memory
     // system, and noteMemRespIfEnabled when it completes there (for an ordinary store this is the
@@ -263,7 +326,15 @@ protected:
     std::vector<uint8_t>* int_reg_ready_ = nullptr;
     std::vector<uint8_t>* fp_reg_ready_ = nullptr;
     const bool* reg_ready_at_writeback_ = nullptr;
+    const bool* rename_in_order_ = nullptr;
     VanadisRegReadyChecker* reg_ready_checker_ = nullptr;
+
+    // store_data_late state (see setStoreDataLateBits/isStoreDataReadyIfLate above).
+    const bool* store_data_late_ = nullptr;
+    std::vector<uint8_t>* store_data_late_int_needs_retire_ = nullptr;
+    std::vector<uint8_t>* store_data_late_int_retired_ = nullptr;
+    std::vector<uint8_t>* store_data_late_fp_needs_retire_ = nullptr;
+    std::vector<uint8_t>* store_data_late_fp_retired_ = nullptr;
     VanadisMemOrderChecker* mem_order_checker_ = nullptr;
     VanadisPipelineTracer* pipeline_tracer_ = nullptr;
 };

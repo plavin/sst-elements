@@ -190,7 +190,15 @@ public:
                               "path.", "false"},
         { "rename_width", "Default off feature (see rename_in_order). Maximum number of not-yet-renamed "
                            "instructions the rename stage will rename per hardware thread per cycle. Defaults to "
-                           "decodes_per_cycle.", "decodes_per_cycle"}  )
+                           "decodes_per_cycle.", "decodes_per_cycle"},
+        { "store_data_late", "Default off. When true, an ordinary or partial store (not LL/SC/LOCK/AMO) may "
+                              "issue (be allocated into the LSQ) once its ADDRESS input is ready, even if its "
+                              "DATA input is not -- splitting STA from STD like a real core. The LSQ defers "
+                              "actually reading the data register / sending the write / marking the store "
+                              "executed until that input is ready. Requires rename_in_order=true (fatal "
+                              "otherwise): the store's inputs must already be bound to specific physical "
+                              "registers ahead of issue for it to be safe to stop gating issue on just one of "
+                              "them.", "false"}  )
 
     SST_ELI_DOCUMENT_STATISTICS(
         { "cycles", "Number of cycles the core executed", "cycles", 1 },
@@ -218,7 +226,8 @@ public:
         { "wbready_int_raw_block", "Issue blocked on an integer input whose producer has not yet written back (reg_ready_at_writeback path)", "instructions", 1 },
         { "wbready_fp_raw_block", "Issue blocked on an FP input whose producer has not yet written back (reg_ready_at_writeback path)", "instructions", 1 },
         { "rename_stall_no_regs", "rename_in_order path: the in-order rename stage stopped (for a cycle, a thread) because the oldest not-yet-renamed instruction had no free physical register(s) available", "instructions", 1 },
-        { "renamed_not_issued", "rename_in_order path: number of instructions that have been renamed but not yet issued, sampled each cycle", "instructions", 1 })
+        { "renamed_not_issued", "rename_in_order path: number of instructions that have been renamed but not yet issued, sampled each cycle", "instructions", 1 },
+        { "stores_issued_data_pending", "store_data_late path: a store issued into the LSQ while its data input was not yet ready", "instructions", 1 })
 
     SST_ELI_DOCUMENT_PORTS({ "icache_link", "Connects the CPU to the instruction cache", {} },
                            { "dcache_link", "Connects the CPU to the data cache", {} },
@@ -275,7 +284,7 @@ private:
 
     int checkInstructionResources(
         VanadisInstruction* ins, VanadisRegisterStack* int_regs, VanadisRegisterStack* fp_regs,
-        VanadisISATable* isa_table, bool already_renamed = false);
+        VanadisISATable* isa_table, bool already_renamed = false, bool* out_store_data_pending = nullptr);
 
     int recoverRetiredRegisters(
         VanadisInstruction* ins, VanadisRegisterStack* int_regs, VanadisRegisterStack* fp_regs,
@@ -387,6 +396,16 @@ private:
     uint32_t rename_width = 2;
     Statistic<uint64_t>* stat_rename_stall_no_regs = nullptr;
     Statistic<uint64_t>* stat_renamed_not_issued = nullptr;
+
+    // Split STA/STD store issue (default off, see "store_data_late" param). Requires
+    // rename_in_order=true (fatal otherwise, checked alongside the rename_in_order fatal check).
+    // No new per-physical-register state is needed: it reuses int_reg_ready_/fp_reg_ready_,
+    // int_reg_needs_retire_/fp_reg_needs_retire_ and int_reg_retired_/fp_reg_retired_ above
+    // (all already required/maintained whenever rename_in_order is on), via
+    // checkInstructionResources' already_renamed branch (vanadis.cc) and
+    // VanadisLoadStoreQueue::isStoreDataReadyIfLate() (lsq/vlsq.h).
+    bool store_data_late = false;
+    Statistic<uint64_t>* stat_stores_issued_data_pending = nullptr;
 
     // Apply the mem_order_check shadow checker's retire-time hooks for a genuinely
     // retiring (not squashed) instruction -- commits a STORE's captured payload into the shadow,
